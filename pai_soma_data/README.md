@@ -26,7 +26,7 @@ pip install pai-soma-data
 To start using the `SomaData` class, initialize it with the URI of your SOMA experiment. You can choose the data layer (`raw` or `norm`) based on your needs:
 
 ```
-from soma_data import SomaData
+from pai_soma_data import SomaData
 
 # Instantiate SomaData with normalized counts
 sdata = SomaData(
