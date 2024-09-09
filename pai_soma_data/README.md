@@ -1,4 +1,4 @@
-# SomaData
+# Pai Soma Data
 
 ## Description
 
@@ -16,7 +16,7 @@ This package provides a class, `SomaData`, for handling data from a Soma experim
 To use this package, you'll need Python 3.8 or later.
 
 ```
-pip install soma_data
+pip install pai-soma-data
 ```
 
 ## Usage
