@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pai_soma_data"
-version = "1.0.1"
+version = "1.0.2"
 description = "A class to handle data from a Soma experiment made by Phenomic AI"
 authors = [{name = "Phenomic AI", email = "sctx@phenomic.ai"}]
 license = {text = "MIT"} 
