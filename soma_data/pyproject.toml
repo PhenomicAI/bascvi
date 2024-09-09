@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soma_data"
+dynamic = ["version"]
+description = "A class to handle data from a Soma experiment made by Phenomic AI"
+authors = [{name = "Phenomic AI", email = "sctx@phenomic.ai"}]
+license = {text = "MIT"} 
+readme = "README.md"  # Assuming you have a README.md file
+requires-python = ">= 3.8, < 3.12"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11"
+]
+dependencies = [
+    "tiledbsoma"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.entry-points."setuptools.finalize_distribution_options"]
+setuptools_scm = "setuptools_scm._integration.setuptools:infer_version"
