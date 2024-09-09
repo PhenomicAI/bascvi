@@ -1,4 +1,4 @@
-# scRNA Benchamrking with BAScVI and scMARK
+# scRNA Benchmarking with BAScVI and scMARK
 
 This repo contains everythign you need to benchmark how well your deep-learning architecture can align scRNA data. Let's get started.
 
