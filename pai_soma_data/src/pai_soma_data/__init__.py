@@ -5,6 +5,6 @@ try:
 except PackageNotFoundError:
     __version__ = "0.0.0"
 
-from .soma_data import SomaData
+from .pai_soma_data import SomaData
 
 __all__ = ["SomaData"]
