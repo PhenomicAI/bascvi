@@ -1,0 +1,27 @@
+dataloader parameters
+
+n_workers   block_size  batch_size  avg_time_to_load_batch      max_mem
+
+
+4X large
+1           100000      64          0.28
+2           10000       64          1.20
+4           10000       64          CRASH
+8           1000        64          0.86
+16          1000        64          CRASH
+
+
+1           90000       64          0.34                        ~25         (pin mem false)
+1           90000       64          0.27                        ~25         (pin mem true)
+
+4           20000       64          CRASH                        ~         (pin mem true)
+4           10000       64          CRASH   
+
+
+
+
+8X large
+
+2           150000      64          0.06                        ~48         (pin mem true)
+2           100000      64          0.05                        ~46         (pin mem true)
+2           75000       64          0.25                        ~41         (pin mem true)

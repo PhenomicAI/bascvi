@@ -1,0 +1,76 @@
+{
+    "datamodule_class_name": "EmbDatamodule",
+
+    "datamodule": {
+        "emb_path": "~/geneformer_eval/scmark_eval/results/scmark_zero_shot_umap.csv",
+        "num_dims": 512,
+        "soma_experiment_uri": "/home/ubuntu/large-bascivi/data/scmark",
+ 
+        "cells_to_use_path": "/home/ubuntu/large-bascivi/soma_joinids_scmark_no_wu.pkl",
+        "dataloader_args": {
+            "batch_size": 64,
+            "num_workers": 8,
+            "pin_memory": true,
+            "drop_last": false
+        }
+    },
+    "load_from_checkpoint": false,
+    "trainer_module_name": "bascvi_trainer",
+    "trainer_class_name": "BAScVITrainer",
+    "emb_trainer": {
+        "module_name": "bascvi",
+        "class_name": "BAScVI",
+        "model_args": {
+            "n_hidden": 128,
+            "n_latent": 10,
+            "n_layers": 3,
+            "dropout_rate": 0.1,
+            "log_variational": false,
+            "normalize_total": false,
+            "scaling_factor": 1.0,
+            "init_weights": false,
+            "batch_emb_dim": 10,        
+            "use_library": true,
+            "use_batch_encoder": true,
+            "use_zinb": false
+        },
+        "training_args": {
+            "n_steps_kl_warmup": 20000,
+            "n_steps_discriminator_warmup": 20000,
+            "disc_loss_weight": 1000,
+            "kl_loss_weight": 0.05,
+            "lr_scheduler_metric": "val_loss",
+            "optimizer": {
+                "lr": 0.0001,
+                "weight_decay": 1e-6,
+                "eps": 0.01
+            },
+            "step_lr_scheduler": {
+                "step_size": 100,
+                "gamma": 0.1
+            },
+            "train_library": true,
+            "train_adversarial": true
+        },
+        "callbacks_args": {
+            "model_checkpoint": {
+                "monitor": "val_loss",
+                "mode": "min"
+            },
+            "early_stopping": {
+                "monitor": "val_loss",
+                "patience": 5,
+                "mode": "min"
+            }
+        }
+    },
+    "pl_trainer": {
+        "max_epochs": 200,
+        "accelerator": "gpu",
+        "devices": 1,
+        "check_val_every_n_epoch": 1,
+        "deterministic": true,
+        "default_root_dir": "./exp_logs/scmark_no_wu/gf_emb",
+        "num_sanity_val_steps": -1
+    }
+}
