@@ -1,0 +1,51 @@
+{
+    "datamodule_class_name": "TileDBSomaIterDataModule",
+    "datamodule": {
+        
+        "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/human_v6.0.5_temp_append_test/",
+
+       
+        
+        "genes_to_use_path": "/home/ubuntu/bascvi/data/genes_2ksamples_10cells.txt",
+        "cells_to_use_path": "/home/ubuntu/bascvi/data/soma_joinids_external_franken_immunity_2024_38442708.pkl",
+
+        "block_size": 100000,
+        "calc_library": false,
+        
+        "dataloader_args": {
+            "batch_size": 64,
+            "num_workers": 2,
+            "pin_memory": true,
+            "drop_last": false
+        },
+        "pretrained_batch_size": 7163
+    },
+    "trainer_module_name": "bascvi_trainer",
+    "trainer_class_name": "BAScVITrainer",
+    "emb_trainer": {
+        "module_name": "bascvi",
+        "class_name": "BAScVI",
+        "model_args": {
+            "n_hidden": 512,
+            "n_latent": 10,
+            "n_layers": 4,
+            "dropout_rate": 0.1,
+            "log_variational": false,
+            "normalize_total": true,
+            "scaling_factor": 1.0,
+            "init_weights": false,
+            "batch_emb_dim":10,        
+            "use_library": true,
+            "use_batch_encoder": true
+        },
+        "training_args": {
+
+        },
+        "callbacks_args": {
+
+        }
+    },
+    "pl_trainer": {
+
+    }
+}
