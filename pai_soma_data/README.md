@@ -1,4 +1,4 @@
-# SomaData
+# Pai Soma Data
 
 ## Description
 
@@ -16,7 +16,7 @@ This package provides a class, `SomaData`, for handling data from a Soma experim
 To use this package, you'll need Python 3.8 or later.
 
 ```
-pip install soma_data
+pip install pai-soma-data
 ```
 
 ## Usage
@@ -26,7 +26,7 @@ pip install soma_data
 To start using the `SomaData` class, initialize it with the URI of your SOMA experiment. You can choose the data layer (`raw` or `norm`) based on your needs:
 
 ```
-from soma_data import SomaData
+from pai_soma_data import SomaData
 
 # Instantiate SomaData with normalized counts
 sdata = SomaData(
