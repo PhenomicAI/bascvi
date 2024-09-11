@@ -1,13 +1,14 @@
-from argparse import ArgumentParser
 import json
 import os
+
 from pathlib import Path
+from argparse import ArgumentParser
 
 from scripts.run_train import train
 from scripts.run_kni_scoring import run_kni_on_folder
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -18,21 +19,23 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     files = os.listdir(args.config_root_dir)
-    files = [f for f in files if '.json' in f]
+    files = [f for f in files if ".json" in f]
 
-    run_root_dir = os.path.join("exp_logs", os.path.normpath(args.config_root_dir).split(os.sep)[-1])
+    run_root_dir = os.path.join(
+        "exp_logs", os.path.normpath(args.config_root_dir).split(os.sep)[-1]
+    )
 
     print("Run root folder:", run_root_dir)
     print("Config files being run:")
 
-    for i,f in enumerate(files):
+    for i, f in enumerate(files):
         print(f"\t - {i} {f}")
 
     print("Begin training...")
 
     # print("skipping: ", files)
 
-    for i,f in enumerate(files):
+    for i, f in enumerate(files):
         print(f"____________{i}/{len(files)}___{f}____________")
         with open(os.path.join(args.config_root_dir, f)) as json_file:
             cfg = json.load(json_file)

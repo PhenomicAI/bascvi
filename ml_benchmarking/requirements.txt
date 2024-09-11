@@ -1,0 +1,10 @@
+pytorch-lightning
+torch
+tiledbsoma
+plotly
+plotly-express
+sklearn
+scanpy
+seaborn
+umap-learn
+wandb

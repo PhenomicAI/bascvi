@@ -1,20 +1,18 @@
-from argparse import ArgumentParser
 import os
-from typing import Dict
 import logging
 import json
 import pandas as pd
-
-from pytorch_lightning import Trainer
 import torch
 
+from typing import Dict
+from argparse import ArgumentParser
+from pytorch_lightning import Trainer
+
 from bascvi.datamodule import TileDBSomaIterDataModule, AnnDataDataModule, EmbDatamodule
-
-from bascvi.utils.utils import umap_calc_and_save_html
-
 from bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 
 logger = logging.getLogger("pytorch_lightning")
+
 
 def predict(cfg: Dict, checkpoint_path: str):
 
@@ -29,17 +27,19 @@ def predict(cfg: Dict, checkpoint_path: str):
             )
         torch.multiprocessing.set_start_method("spawn", force=True)
 
-
     # get default root dir from checkpoint path
     cfg["pl_trainer"]["default_root_dir"] = os.path.dirname(checkpoint_path)
 
-
     # dynamically import trainer class
-    module = __import__("bascvi.trainer", globals(), locals(), [cfg["trainer_module_name"]], 0)
+    module = __import__(
+        "bascvi.trainer", globals(), locals(), [cfg["trainer_module_name"]], 0
+    )
     EmbeddingTrainer = getattr(module, cfg["trainer_class_name"])
 
     # Load the model from checkpoint
-    model = EmbeddingTrainer.load_from_checkpoint(checkpoint_path, root_dir=cfg["pl_trainer"]["default_root_dir"])
+    model = EmbeddingTrainer.load_from_checkpoint(
+        checkpoint_path, root_dir=cfg["pl_trainer"]["default_root_dir"]
+    )
 
     logger.info("Set up data module....")
     # Set the number of batches in the datamodule from the saved model
@@ -65,24 +65,46 @@ def predict(cfg: Dict, checkpoint_path: str):
     logger.info("--------------Embedding prediction on full dataset-------------")
     predictions = trainer.predict(model, datamodule=datamodule)
     embeddings = torch.cat(predictions, dim=0).detach().cpu().numpy()
-    emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 1 )] # -1 accounts for soma_joinid 
+    emb_columns = [
+        "embedding_" + str(i) for i in range(embeddings.shape[1] - 1)
+    ]  # -1 accounts for soma_joinid
     embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["soma_joinid"])
-    
+
     # logger.info("--------------------------Run UMAP----------------------------")
     # if embeddings_df.shape[0] > 500000:
     #     logger.info("Too many embeddings to calculate UMAP, skipping....")
     # else:
 
     #     embeddings_df = umap_calc_and_save_html(embeddings_df, emb_columns, trainer.default_root_dir)
-    
+
     logger.info("-----------------------Save Embeddings------------------------")
     with open_soma_experiment(datamodule.soma_experiment_uri) as soma_experiment:
-        obs_df = soma_experiment.obs.read(
-                            column_names=("soma_joinid", "barcode", "standard_true_celltype", "authors_celltype", "cell_type_pred", "cell_subtype_pred", "sample_name", "study_name"),
-                        ).concat().to_pandas()
-        embeddings_df = embeddings_df.set_index("soma_joinid").join(obs_df.set_index("soma_joinid"))
+        obs_df = (
+            soma_experiment.obs.read(
+                column_names=(
+                    "soma_joinid",
+                    "barcode",
+                    "standard_true_celltype",
+                    "authors_celltype",
+                    "cell_type_pred",
+                    "cell_subtype_pred",
+                    "sample_name",
+                    "study_name",
+                ),
+            )
+            .concat()
+            .to_pandas()
+        )
+        embeddings_df = embeddings_df.set_index("soma_joinid").join(
+            obs_df.set_index("soma_joinid")
+        )
 
-    save_path = os.path.join(os.path.dirname(checkpoint_path), "pred_embeddings_" + os.path.splitext(os.path.basename(checkpoint_path))[0] + ".tsv")
+    save_path = os.path.join(
+        os.path.dirname(checkpoint_path),
+        "pred_embeddings_"
+        + os.path.splitext(os.path.basename(checkpoint_path))[0]
+        + ".tsv",
+    )
     embeddings_df.to_csv(save_path, sep="\t")
     logger.info(f"Saved predicted embeddings to: {save_path}")
 
@@ -109,6 +131,5 @@ if __name__ == "__main__":
     logger.info(f"Reading config file from location: {args.config}")
     with open(args.config) as json_file:
         cfg = json.load(json_file)
-
 
     predict(cfg, args.checkpoint_path)

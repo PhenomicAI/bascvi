@@ -1,23 +1,12 @@
 import pandas as pd
-import numpy as np
-from umap import UMAP
-import plotly.express as px
 import pickle as pkl
-
-import re
-import os
-
-from bascvi.utils.utils import umap_calc_and_save_html
 import tiledbsoma as soma
-
-from random import sample
-
 import scanpy as sc
 
-import tqdm
 
-
-def compute_highly_variable_genes_in_chunks(soma_experiment, chunk_size=1000, n_top_genes=4000):
+def compute_highly_variable_genes_in_chunks(
+    soma_experiment, chunk_size=1000, n_top_genes=4000
+):
     # Initialize an empty DataFrame to store the variability information of all genes
     all_variability_info = pd.DataFrame()
 
@@ -33,7 +22,8 @@ def compute_highly_variable_genes_in_chunks(soma_experiment, chunk_size=1000, n_
 
         # Subset the AnnData object to only include genes for the current chunk
         with soma_experiment.axis_query(
-            measurement_name="RNA", obs_query=soma.AxisQuery(coords=(None, slice(start, end)))
+            measurement_name="RNA",
+            obs_query=soma.AxisQuery(coords=(None, slice(start, end))),
         ) as query:
             adata_sub: sc.AnnData = query.to_anndata(
                 X_name="row_raw",
@@ -41,21 +31,32 @@ def compute_highly_variable_genes_in_chunks(soma_experiment, chunk_size=1000, n_
             )
 
         # Compute highly variable genes for the chunk
-        sc.pp.highly_variable_genes(adata_sub, batch_key='batch' if 'batch' in adata_sub.obs else None, inplace=False)
+        sc.pp.highly_variable_genes(
+            adata_sub,
+            batch_key="batch" if "batch" in adata_sub.obs else None,
+            inplace=False,
+        )
 
         # Extract the variability information and add it to our cumulative DataFrame
-        variability_info = adata_sub.var[['highly_variable', 'means', 'dispersions', 'dispersions_norm']]
-        variability_info['gene'] = adata_sub.var_names
-        all_variability_info = pd.concat([all_variability_info, variability_info], ignore_index=True)
+        variability_info = adata_sub.var[
+            ["highly_variable", "means", "dispersions", "dispersions_norm"]
+        ]
+        variability_info["gene"] = adata_sub.var_names
+        all_variability_info = pd.concat(
+            [all_variability_info, variability_info], ignore_index=True
+        )
 
     # After processing all chunks, select the top 4000 most variable genes
-    top_genes = all_variability_info.nlargest(n_top_genes, 'dispersions_norm')
+    top_genes = all_variability_info.nlargest(n_top_genes, "dispersions_norm")
 
     return top_genes, all_variability_info
 
+
 soma_experiment = soma.Experiment.open("./data/scref/")
 
-top_genes, all_variability_info = compute_highly_variable_genes_in_chunks(soma_experiment, chunk_size=100, n_top_genes=4000)
+top_genes, all_variability_info = compute_highly_variable_genes_in_chunks(
+    soma_experiment, chunk_size=100, n_top_genes=4000
+)
 
 all_variability_info.to_csv("all_variability_info_scref.csv", index=False)
 
