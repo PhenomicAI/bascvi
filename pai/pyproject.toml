@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phenomic-ai"
+version = "0.1.4"
+description = "A CLI package which facilitates computational biologists with a single cell RNA embedding tool"
+authors = [{name = "Phenomic AI", email = "sctx@phenomic.ai"}]
+license = {file = "LICENSE"}
+readme = "README.md"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python"
+]
+dependencies = [
+    "requests"
+]
+[project.optional-dependencies]
+dev = [
+    "black", 
+    "pytest",
+    "pytest-cov",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["*tests*"]
+
+[project.scripts]
+pai = "pai.cli:app"
