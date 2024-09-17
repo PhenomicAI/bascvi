@@ -1,36 +1,32 @@
 {
-    "datamodule_class_name": "TileDBSomaIterDataModule",
+    "mode": "train",
 
+    "run_save_dir": "./runs/scref_train/",
+    
     "datamodule": {
-        "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scTx-v1.3.mm/",
-        "barcodes_to_use_path": "/home/ubuntu/ml/bascvi/data/v1.3mm_train_barcodes.pkl",
-
-        "block_size": 100000,
-        "calc_library": true,
-
-        "dataloader_args": {
-            "batch_size": 64,
-            "num_workers": 0,
-            "pin_memory": true,
-            "drop_last": false
+        "class_name": "TileDBSomaIterDataModule",
+        "options": {
+            "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/",
+            "genes_to_use_path": "/home/ubuntu/ml/bascvi/data/genes_2ksamples_10cells.txt",
+            "block_size": 50000,
+            "calc_library": false,
+            "dataloader_args": {
+                "batch_size": 64,
+                "num_workers": 2,
+                "pin_memory": true
+            },
+            "max_cells_per_sample": 100
         }
     },
-    "load_from_checkpoint" : false,
-    "trainer_module_name": "bascvi_trainer",
-    "trainer_class_name": "BAScVITrainer",
     "emb_trainer": {
         "module_name": "bascvi",
         "class_name": "BAScVI",
         "model_args": {
-            "n_hidden": 128,
+            "n_hidden": 512,
             "n_latent": 10,
-            "n_layers": 3,
-            "dropout_rate": 0.1,
-            "log_variational": false,
-            "normalize_total": true,
+            "n_layers": 4,
             "scaling_factor": 1.0,
             "init_weights": false,
-            "batch_emb_dim": 10,        
             "use_library": true,
             "use_batch_encoder": true
         },
@@ -63,13 +59,5 @@
                 "mode": "min"
             }
         }
-    },
-    "pl_trainer": {
-        "max_epochs": 200,
-        "accelerator": "gpu",
-        "devices": 1,
-        "check_val_every_n_epoch": 1,
-        "deterministic": true,
-        "num_sanity_val_steps": -1
     }
 }

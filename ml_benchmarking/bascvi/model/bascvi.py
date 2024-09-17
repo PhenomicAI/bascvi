@@ -13,19 +13,6 @@ from bascvi.model.distributions import ZeroInflatedNegativeBinomial
 from torch.nn import CosineSimilarity
 
 
-# def bce_min_loss(z_pred, batch_emb):
-
-#     z_pred = torch.sigmoid(z_pred)
-    
-#     torch.clamp(z_pred,1e-8,1-1e-8)
-    
-#     z_loss = torch.mul(torch.log(z_pred), batch_emb).sum()
-#     z_sample_loss = torch.multiply(torch.log(1 - z_pred[:,0:354]), 1 - batch_emb[:,0:354])
-#     z_study_loss = torch.multiply(torch.log(1 - z_pred[:,354:]), 1 - batch_emb[:,354:])            
-#     z_loss = z_loss + torch.min(z_sample_loss,1).values.sum() + torch.min(z_study_loss,1).values.sum()
-    
-#     return -z_loss/64
-
 class BAScVI(nn.Module):
 
     """Variational auto-encoder model.

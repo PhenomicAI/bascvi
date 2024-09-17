@@ -14,7 +14,6 @@ def umap_calc_and_save_html(
     save_dir: str,
     save_model: bool = False,
     load_model: str = '',
-    color_by: list = ["study_name_display", "sample_name", "standard_true_celltype"],
 ):
 
     """Calculates UMAP wrt. embeddings, embeddings, and saves three figure, first coloured by cell type,
@@ -57,47 +56,28 @@ def umap_calc_and_save_html(
 
     pattern = "(external_|internal_)([a-z]+)(_\w+)"
     if "study_name" in embeddings:
-        embeddings["study_name"] = embeddings["study_name"].apply(str)
-        embeddings["study_name_display"] = embeddings["study_name"].apply(lambda x: re.match(pattern, x).group(2) if re.match(pattern, x) else x)
+        embeddings["study_name_display"] = embeddings["study_name"].apply(lambda x: re.match(pattern, x).group(2))
     elif "dataset_name" in embeddings:
         embeddings["study_name_display"] = embeddings["dataset_name"].apply(lambda x: re.match(pattern, x).group(2))
         
-    size = 3 if embeddings.shape[0] > 5000 else 5
+    cell_type_col = list(filter(lambda x: re.match("standard_true_celltype*", x), embeddings.columns))[0]
+    fig_1 = px.scatter(embeddings, x=_x, y=_y, color=cell_type_col, width=1000, height=800)
+    fig_2 = px.scatter(embeddings, x=_x, y=_y, color="study_name_display", width=1000, height=800)
+    fig_3 = px.scatter(embeddings, x=_x, y=_y, color="sample_name", width=1000, height=800)
 
-    for color_col in color_by:
-        fig = px.scatter(embeddings, x=_x, y=_y, color=color_col, width=1000, height=800)
-        fig.update_traces(marker=dict(size=size, opacity=0.5,))
-        fig_path = os.path.join(save_dir, f"umap_colour_by_{color_col}.html")
-        fig.write_html(fig_path)
+    size = 2 if embeddings.shape[0] > 5000 else 5
+    fig_1.update_traces(marker=dict(size=size))
+    fig_2.update_traces(marker=dict(size=size))
+    fig_3.update_traces(marker=dict(size=size))
 
-        fig_path = os.path.join(save_dir, f"umap_colour_by_{color_col}.png")
-        fig.write_image(fig_path)
+    umap_cell_type_path = os.path.join(save_dir, f"umap_colour_by_cell_type.html")
+    umap_dataset_path = os.path.join(save_dir, f"umap_colour_by_study.html")
+    umap_sample_path = os.path.join(save_dir, f"umap_colour_by_sample.html")
+    fig_1.write_html(umap_cell_type_path)
+    fig_2.write_html(umap_dataset_path)
+    fig_3.write_html(umap_sample_path)
 
-    # cell_type_col = list(filter(lambda x: re.match("standard_true_celltype*", x), embeddings.columns))[0]
-    # fig_1 = px.scatter(embeddings, x=_x, y=_y, color=cell_type_col, width=1000, height=800)
-    # fig_2 = px.scatter(embeddings, x=_x, y=_y, color="study_name_display", width=1000, height=800)
-    # fig_3 = px.scatter(embeddings, x=_x, y=_y, color="sample_name", width=1000, height=800)
-
-    # fig_1.update_traces(marker=dict(size=size, opacity=0.5,))
-    # fig_2.update_traces(marker=dict(size=size, opacity=0.5,))
-    # fig_3.update_traces(marker=dict(size=size, opacity=0.5,))
-
-    # umap_cell_type_path = os.path.join(save_dir, f"umap_colour_by_cell_type.html")
-    # umap_dataset_path = os.path.join(save_dir, f"umap_colour_by_study.html")
-    # umap_sample_path = os.path.join(save_dir, f"umap_colour_by_sample.html")
-    # fig_1.write_html(umap_cell_type_path)
-    # fig_2.write_html(umap_dataset_path)
-    # fig_3.write_html(umap_sample_path)
-
-    # umap_cell_type_path = os.path.join(save_dir, f"umap_colour_by_cell_type.png")
-    # umap_dataset_path = os.path.join(save_dir, f"umap_colour_by_study.png")
-    # umap_sample_path = os.path.join(save_dir, f"umap_colour_by_sample.png")
-    # fig_1.write_image(umap_cell_type_path)
-    # fig_2.write_image(umap_dataset_path)
-    # fig_3.write_image(umap_sample_path)
-
-
-    return embeddings, {"val_umap_" + color_col: os.path.join(save_dir, f"umap_colour_by_{color_col}.png") for color_col in color_by}
+    return embeddings
 
 # emb = pd.read_csv("/home/ubuntu/scmark/exp_logs/10k_adv_1/train_embeddings.tsv",sep="\t", index_col="index")
 # emb_columns = ["embedding_" + str(i) for i in range(10)]

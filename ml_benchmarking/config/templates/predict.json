@@ -1,0 +1,26 @@
+{
+    "mode": "predict",
+
+    "pretrained_model_path": "/home/ubuntu/paper_repo/bascvi/checkpoints/paper/human_bascvi_1k/human_bascvi_epoch_123.ckpt",
+
+    "run_save_dir": "./runs/paper/bascvi_human_predict/",
+    
+    "datamodule": {
+        "class_name": "TileDBSomaIterDataModule",
+        "options": {
+            "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/",
+            "block_size": 100000,
+            "calc_library": false,
+            "dataloader_args": {
+                "batch_size": 64,
+                "num_workers": 3,
+                "pin_memory": true
+            },
+            "max_cells_per_sample": 100
+        }
+    },
+
+    "trainer_module_name": "bascvi_trainer",
+    "trainer_class_name": "BAScVITrainer"
+
+}

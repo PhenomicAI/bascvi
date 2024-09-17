@@ -29,8 +29,11 @@ class BAScVITrainer(pl.LightningModule):
         model_args: dict = {},
         training_args: dict = {},
         callbacks_args: dict = {},
-        module_name: str = "",
-        class_name: str = "",
+        module_name: str = "bascvi",
+        class_name: str = "BAScVI",
+        gene_list: list = None,
+        n_input: int = None,
+        n_batch: int = None,
     ):
         super().__init__()
         # save hyperparameters in hparams.yaml file
@@ -40,6 +43,12 @@ class BAScVITrainer(pl.LightningModule):
         self.valid_counter = 0
 
         self.model_args = model_args
+
+        if n_input is not None:
+            self.model_args["n_input"] = n_input
+        if n_batch is not None:
+            self.model_args["n_batch"] = n_batch
+            
         self.training_args = training_args
         self.callbacks_args = callbacks_args
         self.n_epochs_kl_warmup = training_args.get("n_epochs_kl_warmup")
@@ -50,6 +59,8 @@ class BAScVITrainer(pl.LightningModule):
         self.n_steps_discriminator_warmup = training_args.get("n_steps_discriminator_warmup")
         self.use_library = training_args.get("use_library")
         self.save_validation_umaps = training_args.get("save_validation_umaps")
+
+        self.gene_list = self.model_args.get("gene_list", None)
 
 
         # neat way to dynamically import classes
@@ -235,12 +246,11 @@ class BAScVITrainer(pl.LightningModule):
         if give_mean:
             z = qz_m
 
-        # print('z:', z.shape)
-        # print('soma_joinid:', batch["soma_joinid"].shape)
-        # # print unique soma_joinid
-        # print('unique:', len(batch["soma_joinid"].unique()))
+        # Important: make z float64 dtype to concat properly with soma_joinid
+        z = z.double()
 
-        return torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1)
+        # join z with soma_joinid and cell_idx
+        return torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1), torch.unsqueeze(batch["cell_idx"], 1)), 1)
 
     def configure_optimizers(self,):
         if self.training_args.get("train_library"):

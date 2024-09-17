@@ -1,14 +1,14 @@
 {
-    "datamodule_class_name": "EmbDatamodule",
+    "datamodule_class_name": "TileDBSomaIterDataModule",
 
     "datamodule": {
-        "emb_path": "/home/ubuntu/scGPT/results/scref_train/zero_shot/scGPT_embedding_external_pal_emboj_2021_33950524.csv",
-        "num_dims": 512,
-        "soma_experiment_uri": "/home/ubuntu/bascvi/data/human_v6.0.5",
-       
+        "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/",
+        "block_size": 10000,
+        "calc_library": false,
+        "genes_to_use_path": "/home/ubuntu/ml/bascvi/data/genes_2ksamples_10cells.txt",
         "dataloader_args": {
             "batch_size": 64,
-            "num_workers": 3,
+            "num_workers": 0,
             "pin_memory": true,
             "drop_last": false
         }
@@ -20,25 +20,24 @@
         "module_name": "bascvi",
         "class_name": "BAScVI",
         "model_args": {
-            "n_hidden": 128,
+            "n_hidden": 512,
             "n_latent": 10,
-            "n_layers": 3,
+            "n_layers": 4,
             "dropout_rate": 0.1,
             "log_variational": false,
-            "normalize_total": false,
+            "normalize_total": true,
             "scaling_factor": 1.0,
             "init_weights": false,
             "batch_emb_dim": 10,        
             "use_library": true,
-            "use_batch_encoder": true,
-            "use_zinb": false
+            "use_batch_encoder": true
         },
         "training_args": {
-            "n_steps_kl_warmup": 20000,
-            "n_steps_discriminator_warmup": 20000,
-            "disc_loss_weight": 1000,
-            "kl_loss_weight": 0.05,
-            "lr_scheduler_metric": "val_loss",
+            "n_epochs_discriminator_warmup": 5,
+            "disc_loss_weight": 1000.0,
+            "kl_loss_weight": 1.0,
+            "lr_scheduler_metric": "train_loss",
+            "save_validation_umaps": false,
             "optimizer": {
                 "lr": 0.0001,
                 "weight_decay": 1e-6,
@@ -64,6 +63,7 @@
         }
     },
     "pl_trainer": {
+        "default_root_dir": "./logs/scref_bascvi",
         "max_epochs": 200,
         "accelerator": "gpu",
         "devices": 1,
