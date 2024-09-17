@@ -36,6 +36,11 @@ The standard ScVI models is contained in xxx
 
 Our modified Batch-Adversarial ScVI model is in bascvi.py
 
+## Checkpoints
+
+bascvi-human: 
+https://huggingface.co/phenomicai/bascvi-human/resolve/main/human_bascvi_epoch_123.ckpt
+
 ## Evaluation
 
 To evaluate the performance of the embedding approach we leverage author given labels.
