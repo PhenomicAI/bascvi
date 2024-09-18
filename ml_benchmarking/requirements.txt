@@ -1,4 +1,4 @@
-faiss
+faiss-cpu
 pytorch-lightning
 torch
 tiledbsoma
