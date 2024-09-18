@@ -3,7 +3,7 @@ torch
 tiledbsoma
 plotly
 plotly-express
-sklearn
+scikit-learn
 scanpy
 seaborn
 umap-learn
