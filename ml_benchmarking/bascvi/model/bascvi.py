@@ -183,7 +183,7 @@ class BAScVI(nn.Module):
         modality_vec = batch["modality_vec"]
         study_vec = batch["study_vec"]
         sample_vec = batch["sample_vec"]
-        batch_vec = torch.cat([modality_vec, study_vec, sample_vec], dim=0)
+        batch_vec = torch.cat([modality_vec, study_vec, sample_vec], dim=1)
         
 
         local_l_mean = batch["local_l_mean"]
