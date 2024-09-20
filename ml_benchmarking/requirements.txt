@@ -10,3 +10,4 @@ seaborn
 umap-learn
 wandb
 fast_matrix_market
+python-dotenv
