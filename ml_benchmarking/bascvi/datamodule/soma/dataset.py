@@ -14,17 +14,17 @@ class TileDBSomaTorchIterDataset(IterableDataset):
         self,
         soma_experiment_uri,
         obs_df,
-        num_samples,
-        num_studies,
-        num_genes,
+        num_input,
         genes_to_use,
         feature_presence_matrix,
-        library_calcs,
         block_size,
         num_workers,
+        num_modalities=None,
+        num_studies=None,
+        num_samples=None,
+        library_calcs=None,
         verbose=False,
         predict_mode=False,
-        pretrained_batch_size = None,
         pretrained_gene_indices = None
     ):     
         self.soma_experiment_uri = soma_experiment_uri
@@ -37,10 +37,18 @@ class TileDBSomaTorchIterDataset(IterableDataset):
 
         self.predict_mode = predict_mode
 
-        self.num_genes = num_genes
-        self.num_samples = num_samples
+        self.num_input = num_input
+
+        if self.predict_mode:
+            assert self.num_modalities is None
+            assert self.num_studies is None
+            assert self.num_samples is None
+
+
+
+        self.num_modalities = num_modalities
         self.num_studies = num_studies
-        self.num_batches = num_samples + num_studies
+        self.num_samples = num_samples
 
         self.block_counter = 0
         self.cell_counter = 0
@@ -50,18 +58,11 @@ class TileDBSomaTorchIterDataset(IterableDataset):
 
         self.library_calcs = library_calcs
 
-        # self.num_cells = self.soma_experiment.obs.count
-        # self.num_genes = num_genes
-
         self.num_workers = num_workers
 
         self._len = self.obs_df.shape[0]
 
         self.verbose = verbose
-
-        if pretrained_batch_size is not None:
-            self.num_batches = pretrained_batch_size
-            self.predict_mode = True
 
         self.pretrained_gene_indices = pretrained_gene_indices
 
@@ -129,8 +130,10 @@ class TileDBSomaTorchIterDataset(IterableDataset):
 
                 self.cell_idx_block = self.obs_df_block['cell_idx'].to_numpy(dtype=np.int64)
                 self.soma_joinid_block = self.obs_df_block["soma_joinid"].to_numpy(dtype=np.int64)
+
+                self.modality_idx_block = self.obs_df_block["modality_idx"].to_numpy()
+                self.study_idx_block = self.obs_df_block["study_idx"].to_numpy()
                 self.sample_idx_block = self.obs_df_block["sample_idx"].to_numpy()
-                self.dataset_idx_block = self.obs_df_block["dataset_idx"].to_numpy()
 
                 assert self.obs_df_block.shape[0] == (end_idx - start_idx)
                 assert len(np.unique(self.soma_joinid_block)) == (end_idx - start_idx)
@@ -162,43 +165,54 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 X_curr_full[self.pretrained_gene_indices] = X_curr
                 X_curr = np.squeeze(np.transpose(X_curr_full))
 
-            sample_idx_curr = self.sample_idx_block[self.cell_counter]
-            dataset_idx_curr = self.dataset_idx_block[self.cell_counter]
-
-            if self.predict_mode:
-                one_hot_batch = np.zeros((self.num_batches,), dtype=np.float32)
-            else:
-                one_hot_sample = np.zeros((self.num_samples,), dtype=np.float32)
-                one_hot_study = np.zeros((self.num_studies,), dtype=np.float32)
-                one_hot_sample[sample_idx_curr] = 1
-                one_hot_study[dataset_idx_curr] = 1
-                one_hot_batch = np.concatenate((one_hot_sample, one_hot_study))
-
-            
-            # library
-            if sample_idx_curr in self.library_calcs.index:
-                local_l_mean = self.library_calcs.loc[sample_idx_curr, "library_log_means"]
-                local_l_var = self.library_calcs.loc[sample_idx_curr, "library_log_vars"]
-            else:
-                local_l_mean = 0.0
-                local_l_var = 1.0
-
-
             soma_joinid = self.soma_joinid_block[self.cell_counter]
             cell_idx = self.cell_idx_block[self.cell_counter]
             feature_presence_mask = self.feature_presence_matrix[sample_idx_curr, :]
 
 
-            # make return
-            datum = {
-                "x": torch.from_numpy(X_curr.astype("int32")),
-                "batch_emb": torch.from_numpy(one_hot_batch),
-                "local_l_mean": torch.tensor(local_l_mean),
-                "local_l_var": torch.tensor(local_l_var),
-                "feature_presence_mask": torch.from_numpy(feature_presence_mask),
-                "soma_joinid": torch.tensor(soma_joinid, dtype=torch.int64),
-                "cell_idx": torch.tensor(cell_idx, dtype=torch.int64),
-            }
+            if self.predict_mode:
+                # make return
+                datum = {
+                    "x": torch.from_numpy(X_curr.astype("int32")),
+                    "soma_joinid": torch.tensor(soma_joinid, dtype=torch.int64),
+                    "cell_idx": torch.tensor(cell_idx, dtype=torch.int64),
+                    "feature_presence_mask": torch.from_numpy(feature_presence_mask),                
+                }
+
+            else: # training / validation mode
+                modality_idx_curr = self.modality_idx_block[self.cell_counter]
+                study_idx_curr = self.study_idx_block[self.cell_counter]
+                sample_idx_curr = self.sample_idx_block[self.cell_counter]
+
+                # construct batch vecs
+                one_hot_modality = np.zeros((self.num_modalities,), dtype=np.float32)
+                one_hot_study = np.zeros((self.num_studies,), dtype=np.float32)
+                one_hot_sample = np.zeros((self.num_samples,), dtype=np.float32)
+
+                one_hot_modality[modality_idx_curr] = 1
+                one_hot_study[study_idx_curr] = 1
+                one_hot_sample[sample_idx_curr] = 1
+            
+                # library
+                if sample_idx_curr in self.library_calcs.index:
+                    local_l_mean = self.library_calcs.loc[sample_idx_curr, "library_log_means"]
+                    local_l_var = self.library_calcs.loc[sample_idx_curr, "library_log_vars"]
+                else:
+                    local_l_mean = 0.0
+                    local_l_var = 1.0
+
+                # make return
+                datum = {
+                    "x": torch.from_numpy(X_curr.astype("int32")),
+                    "soma_joinid": torch.tensor(soma_joinid, dtype=torch.int64),
+                    "cell_idx": torch.tensor(cell_idx, dtype=torch.int64),
+                    "feature_presence_mask": torch.from_numpy(feature_presence_mask),  
+                    "modality_vec": torch.from_numpy(one_hot_modality),
+                    "study_vec": torch.from_numpy(one_hot_study),
+                    "sample_vec": torch.from_numpy(one_hot_sample),
+                    "local_l_mean": torch.tensor(local_l_mean),
+                    "local_l_var": torch.tensor(local_l_var),
+                }
 
             # increment counters
             if (self.cell_counter + 1) == self.obs_df_block.shape[0]:
