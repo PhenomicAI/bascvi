@@ -298,7 +298,10 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
         self.cells_to_use = None
         # cells to use
-        if self.cells_to_use_path:
+        if self.train_column:
+            self.cells_to_use = self.obs_df.loc[self.obs_df[self.train_column]]["soma_joinid"].values.tolist()
+            print("read cell list with length ", len(self.cells_to_use), len(set(self.cells_to_use)))
+        elif self.cells_to_use_path:
             with open(self.cells_to_use_path, "rb") as f:
                 self.cells_to_use = pickle.load(f)
             print("read cell list with length ", len(self.cells_to_use), len(set(self.cells_to_use)))

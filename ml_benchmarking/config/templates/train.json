@@ -7,15 +7,16 @@
         "class_name": "TileDBSomaIterDataModule",
         "options": {
             "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/",
+            "train_column": "included_scref_train",
             "genes_to_use_path": "/home/ubuntu/ml/bascvi/data/genes_2ksamples_10cells.txt",
-            "block_size": 50000,
+            "block_size": 100000,
             "calc_library": false,
+            "random_seed": 42,
             "dataloader_args": {
                 "batch_size": 64,
-                "num_workers": 2,
+                "num_workers": 4,
                 "pin_memory": true
-            },
-            "max_cells_per_sample": 100
+            }
         }
     },
     "emb_trainer": {

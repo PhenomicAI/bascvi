@@ -18,9 +18,12 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Running the Embedding Model
+## Training BAscVI
 
-You can run a single
+Please refer to the template config files under `ml_benchmarking/config/templates` which can be run using 
+
+```python -m scripts.run_config -c config/templates/train.json```
+
 
 ## Trainers
 
