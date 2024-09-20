@@ -9,3 +9,4 @@ scanpy
 seaborn
 umap-learn
 wandb
+fast_matrix_market
