@@ -24,6 +24,11 @@ Please refer to the template config files under `ml_benchmarking/config/template
 
 ```python -m scripts.run_config -c config/templates/train.json```
 
+When prompted for WandDB enter (3) to proceed - unless you want to view logger results then cxreate an account
+
+## Key Steps
+
+Ensure your system has enough memory for the dataloader arguments you pass. If you encounter a killed process, a good first step is to lower block_size and/or decrease num_workers.
 
 ## Trainers
 
