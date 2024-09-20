@@ -15,7 +15,7 @@ ml_benchmarking: Code needed to run and evaluate ML models on the scREF and scRE
 
 ## Training BAscVI
 
-Please refer to the template config files under ml_benchmarking/config/templates which can be run using python scripts/run_config.py -c PATH_TO_CONFIG.
+Please refer to the template config files under `ml_benchmarking/config/templates` which can be run using `python scripts/run_config.py -c PATH_TO_CONFIG`.
 
 
 ## License
