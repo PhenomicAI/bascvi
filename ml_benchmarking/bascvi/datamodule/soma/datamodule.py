@@ -40,7 +40,10 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         dataloader_args: Dict = {},
         pretrained_batch_size: int = None,
         verbose: bool = False,
-        exclude_ribo_mito = True
+        exclude_ribo_mito = True,
+        train_column = None,
+        random_seed = 42
+
 
         ):
         super().__init__()
@@ -59,6 +62,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         self.pretrained_batch_size = pretrained_batch_size
         self.verbose = verbose
         self.exclude_ribo_mito = exclude_ribo_mito
+        self.train_column = train_column
+        self.random_seed = random_seed
 
     
 
@@ -182,6 +187,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         column_names = ["soma_joinid", "barcode", "sample_idx", "dataset_idx", "study_name"]
         if not self.calc_library:
             column_names.append("nnz")
+        if self.train_column:
+            column_names.append(self.train_column)
         
         with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
             self.obs_df = soma_experiment.obs.read(
@@ -277,7 +284,10 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         # CELLS
 
         # cells to use
-        if self.cells_to_use_path:
+        if self.train_column:
+            self.cells_to_use = self.obs_df.loc[self.obs_df[self.train_column]]["soma_joinid"].values.tolist()
+            print("read cell list with length ", len(self.cells_to_use), len(set(self.cells_to_use)))
+        elif self.cells_to_use_path:
             with open(self.cells_to_use_path, "rb") as f:
                 self.cells_to_use = pickle.load(f)
             print("read cell list with length ", len(self.cells_to_use), len(set(self.cells_to_use)))
@@ -311,7 +321,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
         # downsample
         if self.max_cells_per_sample:
-            self.obs_df = self.obs_df.groupby('sample_idx').apply(lambda x: x.sample(n=self.max_cells_per_sample) if x.shape[0] > self.max_cells_per_sample else x).reset_index(drop=True)
+            self.obs_df = self.obs_df.groupby('sample_idx').apply(lambda x: x.sample(n=self.max_cells_per_sample, random_state=self.random_seed) if x.shape[0] > self.max_cells_per_sample else x).reset_index(drop=True)
             print("\tdownsampled to ", self.obs_df.shape[0], " cells")
 
 
@@ -330,7 +340,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
         # shuffle obs
         if stage != "predict":
-            self.obs_df = self.obs_df.sample(frac=1) 
+            self.obs_df = self.obs_df.sample(frac=1, random_state=self.random_seed) 
 
         # calculate num blocks
         MIN_VAL_BLOCKS = 1

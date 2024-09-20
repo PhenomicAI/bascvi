@@ -3,9 +3,10 @@ import json
 import os
 from pathlib import Path
 import torch
+import sys
 
-from scripts.run_train import train
-from scripts.run_predict import predict
+from scripts.train import train
+from scripts.predict import predict
 from scripts.run_kni_scoring import run_kni_on_folder
 
 def run_config(config: dict):
