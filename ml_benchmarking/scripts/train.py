@@ -46,6 +46,7 @@ def train(config: Dict):
         datamodule = TileDBSomaIterDataModule(**config["datamodule"]["options"])
 
     elif config["datamodule"]["class_name"] == "EmbDatamodule":
+        config["datamodule"]["options"]["root_dir"] = config["run_save_dir"]
         datamodule = EmbDatamodule(**config["datamodule"]["options"])
 
     elif config["datamodule"]["class_name"] == "AnnDataDataModule":
