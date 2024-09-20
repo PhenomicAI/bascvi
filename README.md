@@ -1,4 +1,4 @@
-# bascvi
+# BAscVI
 
 ## This repo accompanies the paper "Adversarial learning enables unbiased organism-wide cross-species alignment of single-cell RNA data at scale"
 
@@ -10,7 +10,13 @@ pai: An API for inference of cell-type embeddings and cell-types labels from scR
 
 pai_soma_data: A wrapper for TileDB needed for exploring the scREF atlas we provide here on the example notebooks we provide on TileDB in the public notebooks at Phenomic/Reading from scREF and scREF-mu
 
-ml_benchmarking: Code needed to run and evaluate ML models on teh scREF and scREF-mu banchmark
+ml_benchmarking: Code needed to run and evaluate ML models on the scREF and scREF-mu banchmark
+
+
+## Training BAscVI
+
+Please refer to the template config files under ml_benchmarking/config/templates which can be run using python scripts/run_config.py -c PATH_TO_CONFIG.
+
 
 ## License
 
