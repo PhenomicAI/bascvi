@@ -20,13 +20,21 @@ pip install -r requirements.txt
 
 ## Training BAscVI
 
-Please refer to the template config files under `ml_benchmarking/config/templates` which can be run using 
+Please refer to the template config file under `ml_benchmarking/config/templates/train.json` which can be run using 
 
 ```python -m scripts.run_config -c config/templates/train.json```
 
 When prompted for WandDB enter (3) to proceed - unless you want to view logger results then create an account
 
-The trainer is configured to run on a single GPU 
+The trainer is configured to run on a single GPU.
+
+## Predicting with BAscVI
+
+Please refer to the template config file under `ml_benchmarking/config/templates/predict.json` which can be run using 
+
+```python -m scripts.run_config -c config/templates/predict.json```
+
+Ensure that you have downloaded our [latest checkpoint](https://huggingface.co/phenomicai/bascvi-human/resolve/main/human_bascvi_epoch_123.ckpt) and update the `pretrained_model_path` in the config file with the checkpoint location on your system.
 
 ## Key Steps
 
