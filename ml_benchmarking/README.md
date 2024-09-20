@@ -20,7 +20,9 @@ pip install -r requirements.txt
 
 ## Training BAscVI
 
-Please refer to the template config files under `ml_benchmarking/config/templates` which can be run using `python scripts/run_config.py -c PATH_TO_CONFIG`.
+Please refer to the template config files under `ml_benchmarking/config/templates` which can be run using 
+
+```python -m scripts.run_config -c config/templates/train.json```
 
 
 ## Trainers
