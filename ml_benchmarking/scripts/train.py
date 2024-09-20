@@ -82,7 +82,7 @@ def train(config: Dict):
     model.datamodule = datamodule
 
     # logger.info(f"Initializing pytorch-lightning trainer.....")
-    trainer = Trainer(**config["pl_trainer"], logger=wandb_logger, accelerator="auto", strategy=None)
+    trainer = Trainer(**config["pl_trainer"], logger=wandb_logger, accelerator="auto", devices=1)
     #trainer.save_checkpoint("latest.ckpt")
 
     # logger.addHandler(logging.FileHandler(os.path.join(cfg["datamodule"]["root_dir"], "std.log")))
