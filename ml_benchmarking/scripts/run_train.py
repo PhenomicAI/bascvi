@@ -14,6 +14,7 @@ from bascvi.utils.utils import umap_calc_and_save_html
 from bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 
 from pytorch_lightning.loggers import WandbLogger
+import wandb
 
 
 logger = logging.getLogger("pytorch_lightning")
@@ -23,6 +24,10 @@ def train(config: Dict):
 
     # Initialize Wandb Logger
     wandb_logger = WandbLogger(project="bascvi", save_dir=config["run_save_dir"])
+
+    if "wandb_run_name" in config:
+        wandb.init(name=config["wandb_run_name"], project="bascvi", dir=config["run_save_dir"])
+
 
     # for tiledb
     torch.multiprocessing.set_start_method("fork", force=True)
@@ -103,7 +108,7 @@ def train(config: Dict):
     # elif config["datamodule_class_name"] == "EmbDatamodule":
     #     datamodule = EmbDatamodule(**cfg["datamodule"])
 
-    datamodule.pretrained_batch_size = cfg['emb_trainer']['model_args']['n_batch']
+    datamodule.pretrained_batch_size = config['emb_trainer']['model_args']['n_batch']
     datamodule.setup(stage="predict")
 
     predictions = trainer.predict(model, datamodule=datamodule)
@@ -122,6 +127,6 @@ def train(config: Dict):
     
     # embeddings_df, fig_save_dict = umap_calc_and_save_html(embeddings_df, emb_columns, trainer.default_root_dir)
 
-    save_path = os.path.join(os.path.dirname(cfg["run_save_dir"]), "pred_embeddings_" + os.path.splitext(os.path.basename(trainer.checkpoint_callback.best_model_path))[0] + ".tsv")
+    save_path = os.path.join(os.path.dirname(config["run_save_dir"]), "pred_embeddings_" + os.path.splitext(os.path.basename(trainer.checkpoint_callback.best_model_path))[0] + ".tsv")
     embeddings_df.to_csv(save_path, sep="\t")
     logger.info(f"Saved predicted embeddings to: {save_path}")

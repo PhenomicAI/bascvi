@@ -182,3 +182,4 @@ Privacy
 ml_benchmarking/bascvi/datamodule/notes.txt
 llm_scripts/scgpt-autoencoder/wandb/
 *.ckpt
+ml_benchmarking/runs
