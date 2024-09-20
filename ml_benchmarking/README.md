@@ -24,7 +24,9 @@ Please refer to the template config files under `ml_benchmarking/config/template
 
 ```python -m scripts.run_config -c config/templates/train.json```
 
-When prompted for WandDB enter (3) to proceed - unless you want to view logger results then cxreate an account
+When prompted for WandDB enter (3) to proceed - unless you want to view logger results then create an account
+
+The trainer is configured to run on a single GPU 
 
 ## Key Steps
 
