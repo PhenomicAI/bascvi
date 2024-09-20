@@ -82,7 +82,7 @@ def train(config: Dict):
     model.datamodule = datamodule
 
     # logger.info(f"Initializing pytorch-lightning trainer.....")
-    trainer = Trainer(**config["pl_trainer"], logger=wandb_logger, accelerator="auto")
+    trainer = Trainer(**config["pl_trainer"], logger=wandb_logger, accelerator="auto", strategy=None)
     #trainer.save_checkpoint("latest.ckpt")
 
     # logger.addHandler(logging.FileHandler(os.path.join(cfg["datamodule"]["root_dir"], "std.log")))
@@ -106,7 +106,7 @@ def train(config: Dict):
     # elif config["datamodule_class_name"] == "EmbDatamodule":
     #     datamodule = EmbDatamodule(**cfg["datamodule"])
 
-    datamodule.pretrained_batch_size = cfg['emb_trainer']['model_args']['n_batch']
+    datamodule.pretrained_batch_size = config['emb_trainer']['model_args']['n_batch']
     datamodule.setup(stage="predict")
 
     predictions = trainer.predict(model, datamodule=datamodule)
@@ -125,6 +125,6 @@ def train(config: Dict):
     
     # embeddings_df, fig_save_dict = umap_calc_and_save_html(embeddings_df, emb_columns, trainer.default_root_dir)
 
-    save_path = os.path.join(os.path.dirname(cfg["run_save_dir"]), "pred_embeddings_" + os.path.splitext(os.path.basename(trainer.checkpoint_callback.best_model_path))[0] + ".tsv")
+    save_path = os.path.join(os.path.dirname(config["run_save_dir"]), "pred_embeddings_" + os.path.splitext(os.path.basename(trainer.checkpoint_callback.best_model_path))[0] + ".tsv")
     embeddings_df.to_csv(save_path, sep="\t")
     logger.info(f"Saved predicted embeddings to: {save_path}")
