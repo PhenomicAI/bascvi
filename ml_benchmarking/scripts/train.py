@@ -15,6 +15,8 @@ from bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 
 from pytorch_lightning.loggers import WandbLogger
 
+import wandb
+
 
 logger = logging.getLogger("pytorch_lightning")
 
@@ -23,6 +25,7 @@ def train(config: Dict):
 
     # Initialize Wandb Logger
     wandb_logger = WandbLogger(project="bascvi", save_dir=config["run_save_dir"])
+    wandb.init(project="bascvi", dir=config["run_save_dir"], config=config)
 
     # for tiledb
     torch.multiprocessing.set_start_method("fork", force=True)
