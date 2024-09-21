@@ -77,7 +77,7 @@ class EmbTorchDataset(Dataset):
         dataset_idx = row["dataset_idx"]
 
         # make batch encoding
-        one_hot_modality = np.zeros((1,), dtype=np.float32) # TODO: change this to be more general
+        one_hot_modality = np.ones((1,), dtype=np.float32) # TODO: change this to be more general from ones to one hot
         one_hot_sample = np.zeros((self.num_samples,), dtype=np.float32)
         one_hot_study = np.zeros((self.num_studies,), dtype=np.float32)
         if not self.predict_mode:

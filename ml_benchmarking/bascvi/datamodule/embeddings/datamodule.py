@@ -172,9 +172,14 @@ class EmbDatamodule(pl.LightningDataModule):
 
         with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
             self.obs_df = soma_experiment.obs.read(
-                        column_names=("soma_joinid", "sample_idx", "dataset_idx", "barcode")# "nnz", )
+                        column_names=("soma_joinid", "sample_idx", "study_name", "barcode", 'dataset_idx')# "nnz", )
                     ).concat().to_pandas() 
+            
+            self.var_df = soma_experiment.ms["RNA"].var.read().concat().to_pandas()
 
+        self.genes_to_use = self.var_df.index.to_list()
+            
+        # self.obs_df['dataset_idx'] = self.obs_df['study_name'].astype('category').cat.codes
 
         # join the obs and embeddings
         self.obs_df = self.embeddings_df.join(self.obs_df, on="soma_joinid", how="left", rsuffix = "_r")
@@ -259,17 +264,13 @@ class EmbDatamodule(pl.LightningDataModule):
     
             print("Stage = Predicting")
 
-            self.num_batches = self.pretrained_batch_size
-
-
             self.pred_dataset = EmbTorchDataset(
                                     self.obs_df, 
-                                    0,
-                                    0,
+                                    self.num_samples,
+                                    self.num_studies,
                                     self.num_genes,
                                     self.library_calcs,
                                     self.dataloader_args['num_workers'],
-                                    pretrained_batch_size=self.pretrained_batch_size,
                                     predict_mode=True
                                 )
             
@@ -290,4 +291,15 @@ class EmbDatamodule(pl.LightningDataModule):
         for key, value in batch.items():
             batch[key] = value.to(device)
         return batch
+
+def log_mean(X):
+    log_counts = np.log(X.sum(axis=1))
+    local_mean = np.mean(log_counts).astype(np.float32)
+    return local_mean
+
+def log_var(X):
+    log_counts = np.log(X.sum(axis=1))
+    local_var = np.var(log_counts).astype(np.float32)
+    return local_var
+
 
