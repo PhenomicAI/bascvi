@@ -226,7 +226,7 @@ class EmbDatamodule(pl.LightningDataModule):
 
         # shuffle obs
         if stage != "predict":
-            self.obs_df = self.obs_df.sample(frac=1, replace=False, random_state=42) 
+            self.obs_df = self.obs_df.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
             print("Shuffled obs_df")
         else:
             print("Not shuffling obs_df")
@@ -276,12 +276,12 @@ class EmbDatamodule(pl.LightningDataModule):
             
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, **self.dataloader_args)
+        return DataLoader(self.train_dataset, persistent_workers=True,**self.dataloader_args)
 
     def val_dataloader(self):
         loader_args = copy.copy(self.dataloader_args)
         
-        return DataLoader(self.val_dataset, **loader_args)
+        return DataLoader(self.val_dataset, persistent_workers=True, **loader_args)
 
     def predict_dataloader(self):
         loader_args = copy.copy(self.dataloader_args)
