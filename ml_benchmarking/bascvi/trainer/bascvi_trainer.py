@@ -250,7 +250,7 @@ class BAScVITrainer(pl.LightningModule):
         z = z.double()
 
         # join z with soma_joinid and cell_idx
-        return torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1), torch.unsqueeze(batch["cell_idx"], 1)), 1)
+        return torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1)
 
     def configure_optimizers(self,):
         if self.training_args.get("train_library"):
