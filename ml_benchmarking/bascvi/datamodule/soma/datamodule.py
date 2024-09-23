@@ -184,7 +184,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         # read metadata
-        column_names = ["soma_joinid", "barcode", self.batch_keys["modality"], self.batch_keys["study"], self.batch_keys["sample"]]
+        column_names = ["soma_joinid", "barcode", self.batch_keys["study"], self.batch_keys["sample"]] #, TODO: uncomment "modality"]
 
         # check if nnz in obs
         with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
