@@ -298,9 +298,7 @@ class BAScVI(nn.Module):
             disc_loss_study = torch.mean(disc_loss[ : , batch_vecs[0].shape[0]:batch_vecs[0].shape[0] + batch_vecs[1].shape[0]], dim=1)
             disc_loss_sample = torch.mean(disc_loss[ : , batch_vecs[0].shape[0] + batch_vecs[1].shape[0]:], dim=1)
 
-
             disc_loss_reduced = torch.mean(disc_loss_modality) + torch.mean(disc_loss_study) + torch.mean(disc_loss_sample)
-
 
             reconst_loss = torch.mean(reconst_loss)
             weighted_kl_local = kl_loss_weight * (torch.mean(weighted_kl_local))
@@ -316,7 +314,7 @@ class BAScVI(nn.Module):
             z_pred = generative_outputs["z_pred"]
             x_pred = inference_outputs["x_pred"]
             
-                        # batch adversarial cost z_pred is from the decoder, x_pred is from the encoder. we want to remove batch from both
+            # batch adversarial cost z_pred is from the decoder, x_pred is from the encoder. we want to remove batch from both
             # TODO: question: do we want to remove modality from decoder output? we might want to be able to translate between modalities
             disc_loss = disc_loss_weight * (self.loss_bce(z_pred, batch_vec.float()) + self.loss_bce(x_pred, batch_vec.float()))
 

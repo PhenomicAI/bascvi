@@ -172,14 +172,14 @@ class EmbDatamodule(pl.LightningDataModule):
 
         with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
             self.obs_df = soma_experiment.obs.read(
-                        column_names=("soma_joinid", "sample_idx", "study_name", "barcode", 'dataset_idx')# "nnz", )
+                        column_names=("soma_joinid", "sample_idx", "study_name", "barcode")# "nnz", )
                     ).concat().to_pandas() 
             
             self.var_df = soma_experiment.ms["RNA"].var.read().concat().to_pandas()
 
         self.genes_to_use = self.var_df.index.to_list()
             
-        # self.obs_df['dataset_idx'] = self.obs_df['study_name'].astype('category').cat.codes
+        self.obs_df['dataset_idx'] = self.obs_df['study_name'].astype('category').cat.codes
 
         # join the obs and embeddings
         self.obs_df = self.embeddings_df.join(self.obs_df, on="soma_joinid", how="left", rsuffix = "_r")

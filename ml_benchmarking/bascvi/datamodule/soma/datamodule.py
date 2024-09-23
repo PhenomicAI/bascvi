@@ -43,7 +43,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         exclude_ribo_mito = True,
         train_column: str = "included_scref_train",
         random_seed: int = 42,
-        batch_keys = {"modality": "modality_name", "study": "study_name", "sample": "sample_name"}
+        batch_keys = {"modality": "modality_name", "study": "study_name", "sample": "sample_idx"}
         ):
         super().__init__()
 
@@ -183,12 +183,22 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
 
     def setup(self, stage: Optional[str] = None):
-        # read obs (soma_joinids and sample_idx)
+        # read metadata
         column_names = ["soma_joinid", "barcode", self.batch_keys["modality"], self.batch_keys["study"], self.batch_keys["sample"]]
-        if not self.calc_library:
+
+        # check if nnz in obs
+        with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
+            all_column_names = [i.name for i in soma_experiment.obs.schema] 
+
+        if "nnz" in all_column_names:
             column_names.append("nnz")
+        
         if self.train_column:
             column_names.append(self.train_column)
+
+        for c in column_names:
+            if c not in all_column_names:
+                raise ValueError(f"Column {c} not found in soma_experiment")
         
         with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
             self.obs_df = soma_experiment.obs.read(
@@ -209,9 +219,9 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         assert temp_df[self.batch_keys["sample"]].nunique() == temp_df.shape[0], "Samples are not unique across studies"
 
         # create idx columns in obs
-        self.obs_df["modality_idx"] = self.obs_df[self.batch_keys["modality"]].astype('category').cat.codes
-        self.obs_df["study_idx"] = self.obs_df[self.batch_keys["study"]].astype('category').cat.codes
-        self.obs_df["sample_idx"] = self.obs_df[self.batch_keys["sample"]].astype('category').cat.codes
+        self.obs_df["modality_idx"] = 0 #TODO: uncomment when we have modality, self.obs_df["modality_idx"] if self.batch_keys["modality"] == "modality_idx" else self.obs_df[self.batch_keys["modality"]].astype('category').cat.codes
+        self.obs_df["study_idx"] = self.obs_df["study_idx"] if self.batch_keys["study"] == "study_idx" else self.obs_df[self.batch_keys["study"]].astype('category').cat.codes
+        self.obs_df["sample_idx"] = self.obs_df["sample_idx"] if self.batch_keys["sample"] == "sample_idx" else self.obs_df[self.batch_keys["sample"]].astype('category').cat.codes
 
         self.num_modalities = self.obs_df["modality_idx"].max() + 1
         self.num_studies = self.obs_df["study_idx"].max() + 1
@@ -253,7 +263,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             # if len(self.genes_to_use) < 1000:
             #     raise ValueError("Gene overlap too small")
             print("Using all genes")
-            self.genes_to_use = self.var_df["soma_joinid"].values.tolist()    
+            self.genes_to_use = self.var_df["soma_joinid"].values.tolist() 
+
         # exclude genes
         if self.exclude_ribo_mito:
             exclusion_regex = r'^(MT-|RPL|RPS|MRPL|MRPS)' # starts with one of these => mito, or ribo
@@ -332,7 +343,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
                 self.library_calcs = soma_experiment.ms["RNA"]["sample_library_calcs"].read().concat().to_pandas()
                 self.library_calcs = self.library_calcs.set_index("sample_idx")
-        except: 
+        except:
+            print() 
             self.filter_and_generate_library_calcs()
             
 
