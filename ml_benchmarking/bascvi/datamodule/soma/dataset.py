@@ -5,6 +5,8 @@ from torch.utils.data import IterableDataset
 import math
 from .soma_helpers import open_soma_experiment
 
+import tiledbsoma as soma
+
 
 
 class TileDBSomaTorchIterDataset(IterableDataset):
@@ -145,7 +147,11 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 try:
                     # read block
                     with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-                        self.X_block = soma_experiment.ms["RNA"]["X"][self.X_array_name].read((tuple(self.soma_joinid_block), None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.soma_joinid_block, :]
+                        # self.X_block = soma_experiment.ms["RNA"]["X"][self.X_array_name].read((tuple(self.soma_joinid_block), None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.soma_joinid_block, :]
+
+                        with soma_experiment.axis_query("RNA", obs_query=soma.AxisQuery(coords=(tuple(self.soma_joinid_block),))) as query:
+                            self.X_block = query.to_anndata(X_name=self.X_array_name, column_names={"obs":["soma_joinid"], "var":["gene"]}).X
+
                         self.X_block = self.X_block[:, self.genes_to_use]
 
                 except:
