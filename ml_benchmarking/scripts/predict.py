@@ -103,6 +103,10 @@ def predict(config: Dict):
                         
             # merge the embeddings with the soma join id
             embeddings_df = embeddings_df.set_index("soma_joinid").join(obs_df.set_index("soma_joinid"))
+    elif config["datamodule"]["class_name"] == "AnnDataDataModule":
+        file_paths_df = pd.DataFrame(datamodule.file_paths, columns=["file_path"])
+        file_paths_df["file_counter"] = file_paths_df.index 
+        embeddings_df = embeddings_df.merge(file_paths_df, on="file_counter")
 
     save_path = os.path.join(config["run_save_dir"], "pred_embeddings_" + os.path.splitext(os.path.basename(config["pretrained_model_path"]))[0] + ".tsv")
     embeddings_df.to_csv(save_path, sep="\t")
