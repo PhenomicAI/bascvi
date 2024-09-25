@@ -16,6 +16,8 @@ from bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 from pytorch_lightning.loggers import WandbLogger
 import wandb
 
+import wandb
+
 
 logger = logging.getLogger("pytorch_lightning")
 
@@ -24,6 +26,7 @@ def train(config: Dict):
 
     # Initialize Wandb Logger
     wandb_logger = WandbLogger(project="bascvi", save_dir=config["run_save_dir"])
+    wandb.init(project="bascvi", dir=config["run_save_dir"], config=config)
 
     if "wandb_run_name" in config:
         wandb.init(name=config["wandb_run_name"], project="bascvi", dir=config["run_save_dir"])
@@ -85,7 +88,7 @@ def train(config: Dict):
     model.datamodule = datamodule
 
     # logger.info(f"Initializing pytorch-lightning trainer.....")
-    trainer = Trainer(**config["pl_trainer"], logger=wandb_logger, accelerator="auto")
+    trainer = Trainer(**config["pl_trainer"], logger=wandb_logger, accelerator="gpu", devices=1)
     #trainer.save_checkpoint("latest.ckpt")
 
     # logger.addHandler(logging.FileHandler(os.path.join(cfg["datamodule"]["root_dir"], "std.log")))

@@ -8,7 +8,7 @@
         "options": {
             "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/",
             "train_column": "included_scref_train",
-            "genes_to_use_path": "./genes_2ksamples_10cells.txt",
+            "genes_to_use_path": "/home/ubuntu/ml/bascvi/data/genes_2ksamples_10cells.txt",
             "block_size": 100000,
             "calc_library": false,
             "random_seed": 42,
@@ -23,9 +23,9 @@
         "module_name": "bascvi",
         "class_name": "BAScVI",
         "model_args": {
-            "n_hidden": 512,
+            "n_hidden": 2048,
             "n_latent": 10,
-            "n_layers": 4,
+            "n_layers": 8,
             "scaling_factor": 1.0,
             "init_weights": false,
             "use_library": true,
@@ -34,7 +34,7 @@
         "training_args": {
             "n_epochs_discriminator_warmup": 5,
             "disc_loss_weight": 1000.0,
-            "kl_loss_weight": 1.0,
+            "kl_loss_weight": 10.0,
             "lr_scheduler_metric": "train_loss",
             "save_validation_umaps": false,
             "optimizer": {
