@@ -178,6 +178,7 @@ class BAScVI(nn.Module):
     def forward(
         self, batch: dict, kl_weight: float = 1.0, disc_loss_weight: float = 10.0, disc_warmup_weight: float = 1.0, kl_loss_weight: float = 1.0, compute_loss: bool = True, encode: bool = False, optimizer_idx=0
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, Dict],]:
+        
         x = batch["x"]
 
         modality_vec = batch["modality_vec"]
@@ -294,11 +295,11 @@ class BAScVI(nn.Module):
             disc_loss = disc_loss_weight * (self.loss_bce(z_pred, batch_vec.float()) + self.loss_bce(x_pred, batch_vec.float()))
 
             # ensure we give equal weight to each batch dimension (modality, study, sample)
-            disc_loss_modality = torch.mean(disc_loss[ : , :batch_vecs[0].shape[0]], dim=1)
-            disc_loss_study = torch.mean(disc_loss[ : , batch_vecs[0].shape[0]:batch_vecs[0].shape[0] + batch_vecs[1].shape[0]], dim=1)
-            disc_loss_sample = torch.mean(disc_loss[ : , batch_vecs[0].shape[0] + batch_vecs[1].shape[0]:], dim=1)
+            disc_loss_modality = torch.mean(torch.mean(disc_loss[ : , :batch_vecs[0].shape[0]], dim=1))
+            disc_loss_study = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0]:batch_vecs[0].shape[0] + batch_vecs[1].shape[0]], dim=1))
+            disc_loss_sample = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0] + batch_vecs[1].shape[0]:], dim=1))
 
-            disc_loss_reduced = torch.mean(disc_loss_modality) + torch.mean(disc_loss_study) + torch.mean(disc_loss_sample)
+            disc_loss_reduced = torch.mean(torch.mean(disc_loss, dim=1))
 
             reconst_loss = torch.mean(reconst_loss)
             weighted_kl_local = kl_loss_weight * (torch.mean(weighted_kl_local))
@@ -319,13 +320,11 @@ class BAScVI(nn.Module):
             disc_loss = disc_loss_weight * (self.loss_bce(z_pred, batch_vec.float()) + self.loss_bce(x_pred, batch_vec.float()))
 
             # ensure we give equal weight to each batch dimension (modality, study, sample)
-            disc_loss_modality = torch.mean(disc_loss[ : , :batch_vecs[0].shape[0]], dim=1)
-            disc_loss_study = torch.mean(disc_loss[ : , batch_vecs[0].shape[0]:batch_vecs[0].shape[0] + batch_vecs[1].shape[0]], dim=1)
-            disc_loss_sample = torch.mean(disc_loss[ : , batch_vecs[0].shape[0] + batch_vecs[1].shape[0]:], dim=1)
+            disc_loss_modality = torch.mean(torch.mean(disc_loss[ : , :batch_vecs[0].shape[0]], dim=1))
+            disc_loss_study = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0]:batch_vecs[0].shape[0] + batch_vecs[1].shape[0]], dim=1))
+            disc_loss_sample = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0] + batch_vecs[1].shape[0]:], dim=1))
 
-
-            disc_loss_reduced = torch.mean(disc_loss_modality) + torch.mean(disc_loss_study) + torch.mean(disc_loss_sample)
-
+            disc_loss_reduced = torch.mean(torch.mean(disc_loss, dim=1))
 
             return {"loss" : disc_loss_reduced, "rec_loss": 0, "kl_local": 0, "disc_loss": disc_loss_reduced.detach(), "disc_loss_modality": disc_loss_modality.detach(), "disc_loss_study": disc_loss_study.detach(), "disc_loss_sample": disc_loss_sample.detach()}
 
