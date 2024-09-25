@@ -1,0 +1,23 @@
+{
+    "mode": "predict",
+
+    "pretrained_model_path": "/home/ubuntu/paper_repo/bascvi/checkpoints/paper/human_bascvi_1k/human_bascvi_epoch_123.ckpt",
+
+    "run_save_dir": "./runs/paper/bascvi_h5ad_predict/",
+    
+    "datamodule": {
+        "class_name": "AnnDataDataModule",
+        "options": {
+            "data_root_dir": "",
+            "dataloader_args": {
+                "batch_size": 64,
+                "num_workers": 4,
+                "pin_memory": true
+            }
+        }
+    },
+
+    "trainer_module_name": "bascvi_trainer",
+    "trainer_class_name": "BAScVITrainer"
+
+}

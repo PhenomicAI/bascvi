@@ -23,7 +23,6 @@ class AnnDataDataset(IterableDataset):
         adata_len_dict,
         num_batches,
         num_workers,
-        batch_dict=None,
         predict_mode=False
     ):
 
@@ -35,7 +34,6 @@ class AnnDataDataset(IterableDataset):
             )
         self.ref_adata.var = self.ref_adata.var.set_index(self.ref_adata.var['gene'])
 
-        self.batch_dict = batch_dict
         self.num_files = len(file_paths)
         self.file_paths = file_paths
 
