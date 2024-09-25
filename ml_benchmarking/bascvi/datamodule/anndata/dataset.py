@@ -12,6 +12,7 @@ import pandas as pd
 import os
 from fast_matrix_market import mmread
 from scipy.sparse import csr_matrix
+import time
 
 class AnnDataDataset(IterableDataset):
     """Custom torch dataset to get data from anndata in tensor form for pytorch modules."""
@@ -30,7 +31,8 @@ class AnnDataDataset(IterableDataset):
 
         self.ref_adata = scanpy.AnnData(
             X=np.zeros((1, len(self.reference_gene_list)), dtype=np.float32), 
-            var={'gene': self.reference_gene_list}
+            var={'gene': self.reference_gene_list},
+            dtype=np.float32
             )
         self.ref_adata.var = self.ref_adata.var.set_index(self.ref_adata.var['gene'])
 
@@ -114,10 +116,12 @@ class AnnDataDataset(IterableDataset):
                 else:
                     self.adata = scanpy.read(curr_adata_path)
 
-                print(self.adata.X.shape)
+                
+                self.adata.X = self.adata.X.astype(np.int32)
 
                 # make index for locating cell in adata in case we subset
                 self.adata.obs['int_index'] = list(range(self.adata.shape[0]))
+
 
                 # should be Prod specific (prod means predicting on new data)
                 #if self.prod_mode:
@@ -126,22 +130,15 @@ class AnnDataDataset(IterableDataset):
                 print('# genes found in reference: ', np.sum(self.feature_presence_mask), '# genes in adata', self.adata.shape[1], '# genes in reference', len(self.reference_gene_list))
 
                 # expands the adata to include the reference genes
-                self.adata = scanpy.concat([self.ref.copy(), self.adata], join='outer')
+                self.adata = scanpy.concat([self.ref_adata.copy(), self.adata], join='outer')
                 # remove the empty top row from ref, subset genes to reference gene list
                 self.adata = self.adata[1:, self.reference_gene_list]
 
-                # predict mode
-                if self.predict_mode:
-
-                    # dummy batch vec
-                    one_hot_batch = np.zeros((self.num_batches,), dtype=np.float32)
-
-                    # dummy library calcs
-                    self.l_mean_all = np.zeros(self.adata.shape[0], dtype=np.float32)
-                    self.l_var_all = np.ones(self.adata.shape[0], dtype=np.float32)
+                self.adata.obs = self.adata.obs.set_index(self.adata.obs['int_index'], drop=False)
+                self.adata.var = self.adata.var.reset_index()
 
                 # training mode      
-                else:
+                if not self.predict_mode:
 
                     raise("Training mode for adata not implemented yet")
                 
@@ -158,22 +155,33 @@ class AnnDataDataset(IterableDataset):
                     self.adata.obs['int_index'] = list(range(self.adata.shape[0]))
                     self.l_mean_all = self.adata.obs.groupby("sample_name")["int_index"].transform(log_mean, self.adata.X)
                     self.l_var_all = self.adata.obs.groupby("sample_name")["int_index"].transform(log_var, self.adata.X)
-
-                          
-            local_l_mean = self.l_mean_all[self.cell_counter]
-            local_l_var = self.l_var_all[self.cell_counter]
-
-            x = np.squeeze(self.adata.X[self.cell_counter].copy().toarray())
+          
+            X_curr = np.squeeze(self.adata.X[self.cell_counter, :].toarray())
             
-            # make return
-            datum = {
-                "x": torch.from_numpy(x),
-                "batch_emb": torch.from_numpy(one_hot_batch),
-                "local_l_mean": torch.tensor(local_l_mean),
-                "local_l_var": torch.tensor(local_l_var),
-                "feature_presence_mask": torch.tensor(self.feature_presence_mask),
-                "locate": torch.tensor([self.file_counter, self.adata.obs['int_index'].values.tolist()[self.cell_counter]])
+
+            if self.predict_mode:
+                # make return
+                datum = {
+                    "x": torch.from_numpy(X_curr.astype("int32")),
+                    "locate": torch.tensor([self.file_counter, self.adata.obs['int_index'].values.tolist()[self.cell_counter]]),
+                    "feature_presence_mask": torch.from_numpy(self.feature_presence_mask),                
                 }
+
+            else:
+                raise("Training mode for adata not implemented yet")
+
+                local_l_mean = self.l_mean_all[self.cell_counter]
+                local_l_var = self.l_var_all[self.cell_counter]
+
+                # make return
+                datum = {
+                    "x": torch.from_numpy(X_curr.astype("int32")),
+                    "batch_emb": torch.from_numpy(one_hot_batch),
+                    "local_l_mean": torch.tensor(local_l_mean),
+                    "local_l_var": torch.tensor(local_l_var),
+                    "feature_presence_mask": torch.tensor(self.feature_presence_mask),
+                    "locate": torch.tensor([self.file_counter, self.adata.obs['int_index'].values.tolist()[self.cell_counter]])
+                    }
 
 
             # if done with all cells in adata, set cell counter to 0 and move on to next file
@@ -184,7 +192,7 @@ class AnnDataDataset(IterableDataset):
                 self.cell_counter = 0
                 self.file_counter += 1     
             else:
-                self.cell_counter      
+                self.cell_counter += 1   
              
             return datum
 

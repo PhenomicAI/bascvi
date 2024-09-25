@@ -224,7 +224,7 @@ class BAScVITrainer(pl.LightningModule):
         return self.validation_step(batch, batch_idx)
     
     def predict_step(self, batch, batch_idx, give_mean: bool = True):
-        encoder_outputs = self(batch, encode=True)
+        encoder_outputs = self(batch, encode=True, predict_mode=True)
         qz_m = encoder_outputs["qz_m"]
         z = encoder_outputs["z"]
 
@@ -234,8 +234,14 @@ class BAScVITrainer(pl.LightningModule):
         # Important: make z float64 dtype to concat properly with soma_joinid
         z = z.double()
 
-        # join z with soma_joinid and cell_idx
-        return torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1)
+
+        if "soma_joinid" in batch:
+            # join z with soma_joinid and cell_idx
+            return torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1)
+        elif "locate" in batch:
+            return torch.cat((z, batch["locate"]), 1)
+        else:
+            return z
 
     def configure_optimizers(self,):
         if self.training_args.get("train_library"):

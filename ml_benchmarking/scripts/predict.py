@@ -71,8 +71,16 @@ def predict(config: Dict):
     logger.info("--------------Embedding prediction on full dataset-------------")
     predictions = trainer.predict(model, datamodule=datamodule)
     embeddings = torch.cat(predictions, dim=0).detach().cpu().numpy()
-    emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 1 )] # -1 accounts for soma_joinid
-    embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["soma_joinid"])
+
+    if config["datamodule"]["class_name"] == "TileDBSomaIterDataModule":
+        emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 1 )] # -1 accounts for soma_joinid
+        embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["soma_joinid"])
+    elif config["datamodule"]["class_name"] == "AnnDataDataModule":
+        emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1]) - 2]
+        embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["file_counter", "cell_counter"])
+    else:
+        emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1])]
+        embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns)
 
 
     # trainer.save_checkpoint("/home/ubuntu/paper_repo/bascvi/checkpoints/paper/human_bascvi_1k/human_bascvi_epoch_123.ckpt")

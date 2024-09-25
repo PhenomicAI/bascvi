@@ -41,16 +41,15 @@ class TileDBSomaTorchIterDataset(IterableDataset):
 
         self.num_input = num_input
 
+        self.num_modalities = num_modalities
+        self.num_studies = num_studies
+        self.num_samples = num_samples
+
         if self.predict_mode:
             assert self.num_modalities is None
             assert self.num_studies is None
             assert self.num_samples is None
 
-
-
-        self.num_modalities = num_modalities
-        self.num_studies = num_studies
-        self.num_samples = num_samples
 
         self.block_counter = 0
         self.cell_counter = 0
@@ -167,7 +166,7 @@ class TileDBSomaTorchIterDataset(IterableDataset):
             X_curr = np.squeeze(np.transpose(self.X_block[self.cell_counter, :].toarray()))
             if self.pretrained_gene_indices is not None:
                 # expand X_curr to full size of pretrained model
-                X_curr_full = np.zeros(self.num_genes,  dtype=np.int32)
+                X_curr_full = np.zeros(self.num_input,  dtype=np.int32)
                 X_curr_full[self.pretrained_gene_indices] = X_curr
                 X_curr = np.squeeze(np.transpose(X_curr_full))
 

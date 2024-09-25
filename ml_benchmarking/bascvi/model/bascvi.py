@@ -176,26 +176,31 @@ class BAScVI(nn.Module):
         return dict(px_scale=px_scale, px_r=px_r, px_rate=px_rate, px_dropout=px_dropout, z_pred=z_pred)
 
     def forward(
-        self, batch: dict, kl_weight: float = 1.0, disc_loss_weight: float = 10.0, disc_warmup_weight: float = 1.0, kl_loss_weight: float = 1.0, compute_loss: bool = True, encode: bool = False, optimizer_idx=0
+        self, batch: dict, kl_weight: float = 1.0, disc_loss_weight: float = 10.0, disc_warmup_weight: float = 1.0, kl_loss_weight: float = 1.0, compute_loss: bool = True, encode: bool = False, optimizer_idx=0, predict_mode=False
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, Dict],]:
         
         x = batch["x"]
 
-        modality_vec = batch["modality_vec"]
-        study_vec = batch["study_vec"]
-        sample_vec = batch["sample_vec"]
-        batch_vec = torch.cat([modality_vec, study_vec, sample_vec], dim=1)
+        # TODO: check that X is raw counts
 
-        # print("BATCH_VEC", batch_vec)
-        
+        if not predict_mode:
+            modality_vec = batch["modality_vec"]
+            study_vec = batch["study_vec"]
+            sample_vec = batch["sample_vec"]
+            batch_vec = torch.cat([modality_vec, study_vec, sample_vec], dim=1)
 
-        local_l_mean = batch["local_l_mean"]
-        local_l_var = batch["local_l_var"]
+            local_l_mean = batch["local_l_mean"]
+            local_l_var = batch["local_l_var"]
+        else:
+            batch_vec = torch.zeros(x.shape[0], self.n_batch).to(x.device)
+            modality_vec = torch.zeros(x.shape[0], 1).to(x.device)
+            study_vec = torch.zeros(x.shape[0], 1).to(x.device)
+            sample_vec = torch.zeros(x.shape[0], 1).to(x.device)
+
+
 
         x_ = x
         
-        # print("X", x)
-
         if self.log_variational:
             x_ = torch.log(1 + x)
         elif self.normalize_total:
@@ -203,12 +208,10 @@ class BAScVI(nn.Module):
 
         inference_outputs = self.inference(x_, batch_vec)
 
-
         if encode:
             return inference_outputs
 
         z = inference_outputs["z"]
-
 
         if self.use_library:
             library = inference_outputs["library"]
