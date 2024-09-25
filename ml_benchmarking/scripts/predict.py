@@ -76,7 +76,7 @@ def predict(config: Dict):
         emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 1 )] # -1 accounts for soma_joinid
         embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["soma_joinid"])
     elif config["datamodule"]["class_name"] == "AnnDataDataModule":
-        emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1]) - 2]
+        emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 2)]
         embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["file_counter", "cell_counter"])
     else:
         emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1])]
