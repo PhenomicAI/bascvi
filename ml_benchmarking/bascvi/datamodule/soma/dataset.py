@@ -165,6 +165,9 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 X_curr_full[self.pretrained_gene_indices] = X_curr
                 X_curr = np.squeeze(np.transpose(X_curr_full))
 
+
+            sample_idx_curr = self.sample_idx_block[self.cell_counter]
+
             soma_joinid = self.soma_joinid_block[self.cell_counter]
             cell_idx = self.cell_idx_block[self.cell_counter]
             feature_presence_mask = self.feature_presence_matrix[sample_idx_curr, :]
@@ -182,7 +185,6 @@ class TileDBSomaTorchIterDataset(IterableDataset):
             else: # training / validation mode
                 modality_idx_curr = self.modality_idx_block[self.cell_counter]
                 study_idx_curr = self.study_idx_block[self.cell_counter]
-                sample_idx_curr = self.sample_idx_block[self.cell_counter]
 
                 # construct batch vecs
                 one_hot_modality = np.zeros((self.num_modalities,), dtype=np.float32)

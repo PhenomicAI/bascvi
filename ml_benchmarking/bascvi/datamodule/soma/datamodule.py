@@ -309,14 +309,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
         self.cells_to_use = None
         # cells to use
-        if self.train_column:
-            self.cells_to_use = self.obs_df.loc[self.obs_df[self.train_column]]["soma_joinid"].values.tolist()
-            print("read cell list with length ", len(self.cells_to_use), len(set(self.cells_to_use)))
-        elif self.cells_to_use_path:
-            with open(self.cells_to_use_path, "rb") as f:
-                self.cells_to_use = pickle.load(f)
-            print("read cell list with length ", len(self.cells_to_use), len(set(self.cells_to_use)))
-        
+       
         if self.barcodes_to_use_path:
             if self.cells_to_use is not None:
                 raise ValueError("cannot use both cells_to_use and barcodes_to_use")
@@ -379,6 +372,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
      
         self.num_cells = self.obs_df.shape[0]
+
+        self.num_batches = self.num_modalities + self.num_studies + self.num_samples
         
         print('# Blocks: ', self.num_total_blocks)
         print('# Genes: ', self.num_genes)
