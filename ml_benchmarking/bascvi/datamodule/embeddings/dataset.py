@@ -77,14 +77,12 @@ class EmbTorchDataset(Dataset):
         dataset_idx = row["dataset_idx"]
 
         # make batch encoding
-        if self.predict_mode:
-            one_hot_batch = np.zeros((self.num_batches,), dtype=np.float32)
-        else:
-            one_hot_sample = np.zeros((self.num_samples,), dtype=np.float32)
-            one_hot_study = np.zeros((self.num_studies,), dtype=np.float32)
+        one_hot_modality = np.ones((1,), dtype=np.float32) # TODO: change this to be more general from ones to one hot
+        one_hot_sample = np.zeros((self.num_samples,), dtype=np.float32)
+        one_hot_study = np.zeros((self.num_studies,), dtype=np.float32)
+        if not self.predict_mode:
             one_hot_sample[sample_idx] = 1
             one_hot_study[dataset_idx] = 1
-            one_hot_batch = np.concatenate((one_hot_sample, one_hot_study))
 
         # library
         if sample_idx in self.library_calcs.index:
@@ -97,7 +95,9 @@ class EmbTorchDataset(Dataset):
         # make return
         ret = {
             "x": torch.from_numpy(x.astype("float32")),
-            "batch_emb": torch.from_numpy(one_hot_batch),
+            "modality_vec": torch.from_numpy(one_hot_modality),
+            "study_vec": torch.from_numpy(one_hot_study),
+            "sample_vec": torch.from_numpy(one_hot_sample),
             "local_l_mean": torch.tensor(local_l_mean),
             "local_l_var": torch.tensor(local_l_var),
             "feature_presence_mask": torch.from_numpy(np.ones(self.num_dims, dtype=np.float32)),

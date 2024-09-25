@@ -158,10 +158,6 @@ class BAScVITrainer(pl.LightningModule):
             self.manual_backward(d_losses['loss'])
             d_opt.step()
 
-            self.log("train_loss", g_losses['loss'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            self.log("train_rec_loss", g_losses['rec_loss'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            self.log("train_kl_loss", g_losses['kl_local'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            self.log("train_disc_loss", g_losses['disc_loss'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         else:
             g_opt = self.optimizers()
 
@@ -174,26 +170,17 @@ class BAScVITrainer(pl.LightningModule):
             self.manual_backward(g_losses['loss'])
             g_opt.step()
 
-            self.log("train_loss", g_losses['loss'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            self.log("train_rec_loss", g_losses['rec_loss'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            self.log("train_kl_loss", g_losses['kl_local'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # add train to log_dict and log
+        g_losses = {f"train_{k}": v for k, v in g_losses.items()}
+        self.log_dict(g_losses, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return g_losses
 
     def validation_step(self, batch, batch_idx):
-        encoder_outputs, _, scvi_loss = self.forward(batch, kl_weight=self.kl_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
+        encoder_outputs, _, g_losses = self.forward(batch, kl_weight=self.kl_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
         
-        metrics_to_log = {
-            "val_loss": scvi_loss['loss'],
-            "val_rec_loss": scvi_loss['rec_loss'],
-            "val_disc_loss": scvi_loss['disc_loss'],
-            "val_kl_loss": scvi_loss['kl_local'],
-        }
-
-        self.log("val_loss", scvi_loss['loss'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("val_rec_loss", scvi_loss['rec_loss'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("val_disc_loss", scvi_loss['disc_loss'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("val_kl_loss", scvi_loss['kl_local'], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        g_losses = {f"train_{k}": v for k, v in g_losses.items()}
+        self.log_dict(g_losses, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         qz_m = encoder_outputs["qz_m"]
         z = encoder_outputs["z"]
@@ -201,10 +188,8 @@ class BAScVITrainer(pl.LightningModule):
         z = qz_m
 
         self.validation_step_outputs.append(torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1))
-
-        wandb.log(metrics_to_log)
         
-        return scvi_loss
+        return g_losses
 
     def on_validation_epoch_end(self):
         metrics_to_log = {}
@@ -250,7 +235,7 @@ class BAScVITrainer(pl.LightningModule):
         z = z.double()
 
         # join z with soma_joinid and cell_idx
-        return torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1), torch.unsqueeze(batch["cell_idx"], 1)), 1)
+        return torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1)
 
     def configure_optimizers(self,):
         if self.training_args.get("train_library"):

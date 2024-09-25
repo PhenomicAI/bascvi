@@ -41,10 +41,9 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         pretrained_batch_size: int = None,
         verbose: bool = False,
         exclude_ribo_mito = True,
-        train_column = None,
-        random_seed = 42
-
-
+        train_column: str = "included_scref_train",
+        random_seed: int = 42,
+        batch_keys = {"modality": "modality_name", "study": "study_name", "sample": "sample_idx"}
         ):
         super().__init__()
 
@@ -64,6 +63,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         self.exclude_ribo_mito = exclude_ribo_mito
         self.train_column = train_column
         self.random_seed = random_seed
+        self.batch_keys = batch_keys
 
     
 
@@ -150,7 +150,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
             # get nnz and filter
             gene_counts = X_curr.getnnz(axis=1)
-            cell_mask = gene_counts > 300 # TODO: change back to 300
+            cell_mask = gene_counts > 300 
             X_curr = X_curr[cell_mask, :]
                    
             print("sample ", sample_idx, ", X shape: ", X_curr.shape)
@@ -183,12 +183,22 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
 
     def setup(self, stage: Optional[str] = None):
-        # read obs (soma_joinids and sample_idx)
-        column_names = ["soma_joinid", "barcode", "sample_idx", "dataset_idx", "study_name"]
-        if not self.calc_library:
+        # read metadata
+        column_names = ["soma_joinid", "barcode", self.batch_keys["study"], self.batch_keys["sample"]] #, TODO: uncomment "modality"]
+
+        # check if nnz in obs
+        with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
+            all_column_names = [i.name for i in soma_experiment.obs.schema] 
+
+        if "nnz" in all_column_names:
             column_names.append("nnz")
+        
         if self.train_column:
             column_names.append(self.train_column)
+
+        for c in column_names:
+            if c not in all_column_names:
+                raise ValueError(f"Column {c} not found in soma_experiment")
         
         with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
             self.obs_df = soma_experiment.obs.read(
@@ -198,6 +208,24 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
                         column_names=("soma_joinid", "gene",),
                     ).concat().to_pandas()
             self.feature_presence_matrix = soma_experiment.ms["RNA"]["feature_presence_matrix"].read().coos(shape=(self.obs_df.sample_idx.nunique(), soma_experiment.ms["RNA"].var.count)).concat().to_scipy().toarray()
+
+        # QUESTION: should we use all batches or only those in the training sample?
+        # BATCH
+
+        # TODO: ensure studies are unique across all modalities. is this necessary?
+
+        # ensure samples are unique across all studies
+        temp_df = self.obs_df.drop_duplicates(subset=[self.batch_keys["study"], self.batch_keys['sample']])
+        assert temp_df[self.batch_keys["sample"]].nunique() == temp_df.shape[0], "Samples are not unique across studies"
+
+        # create idx columns in obs
+        self.obs_df["modality_idx"] = 0 #TODO: uncomment when we have modality, self.obs_df["modality_idx"] if self.batch_keys["modality"] == "modality_idx" else self.obs_df[self.batch_keys["modality"]].astype('category').cat.codes
+        self.obs_df["study_idx"] = self.obs_df["study_idx"] if self.batch_keys["study"] == "study_idx" else self.obs_df[self.batch_keys["study"]].astype('category').cat.codes
+        self.obs_df["sample_idx"] = self.obs_df["sample_idx"] if self.batch_keys["sample"] == "sample_idx" else self.obs_df[self.batch_keys["sample"]].astype('category').cat.codes
+
+        self.num_modalities = self.obs_df["modality_idx"].max() + 1
+        self.num_studies = self.obs_df["study_idx"].max() + 1
+        self.num_samples = self.obs_df["sample_idx"].max() + 1
 
         # GENES
 
@@ -235,14 +263,13 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             # if len(self.genes_to_use) < 1000:
             #     raise ValueError("Gene overlap too small")
             print("Using all genes")
-            self.genes_to_use = self.var_df["soma_joinid"].values.tolist()
-            
+            self.genes_to_use = self.var_df["soma_joinid"].values.tolist() 
+
         # exclude genes
         if self.exclude_ribo_mito:
             exclusion_regex = r'^(MT-|RPL|RPS|MRPL|MRPS)' # starts with one of these => mito, or ribo
             genes_to_exclude = set(self.var_df[self.var_df["gene"].str.contains(exclusion_regex)]["soma_joinid"].values)
             self.genes_to_use = list(set(self.genes_to_use).difference(genes_to_exclude))
-
         if self.pretrained_gene_list:
             self.pretrained_gene_ids = self.var_df[self.var_df["gene"].isin(self.pretrained_gene_list)].soma_joinid.values.tolist()
             self.genes_to_use = list(set(self.pretrained_gene_ids).intersection(set(self.genes_to_use)))
@@ -264,7 +291,6 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             print("genes to use: ", len(self.gene_list))
             print("pretrained gene list: ", len(self.pretrained_gene_list))
             print("max gene index: ", max(self.pretrained_gene_indices))
-
         else:
             # get gene names and sort ids by gene name
             self.var_df_sub = self.var_df[self.var_df["soma_joinid"].isin(self.genes_to_use)]
@@ -277,26 +303,28 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
             self.num_genes = len(self.genes_to_use)
 
-
         self.feature_presence_matrix = self.feature_presence_matrix[:, self.genes_to_use]
-
                
         # CELLS
 
+        self.cells_to_use = None
         # cells to use
-        if self.train_column:
-            self.cells_to_use = self.obs_df.loc[self.obs_df[self.train_column]]["soma_joinid"].values.tolist()
-            print("read cell list with length ", len(self.cells_to_use), len(set(self.cells_to_use)))
-        elif self.cells_to_use_path:
-            with open(self.cells_to_use_path, "rb") as f:
-                self.cells_to_use = pickle.load(f)
-            print("read cell list with length ", len(self.cells_to_use), len(set(self.cells_to_use)))
-        elif self.barcodes_to_use_path:
+       
+        if self.barcodes_to_use_path:
+            if self.cells_to_use is not None:
+                raise ValueError("cannot use both cells_to_use and barcodes_to_use")
             with open(self.barcodes_to_use_path, "rb") as f:
                 barcodes = pickle.load(f)
             self.cells_to_use = self.obs_df.loc[self.obs_df["barcode"].isin(barcodes)]["soma_joinid"].values.tolist()
             print("read cell list with length ", len(self.cells_to_use))
-        else:
+        
+        if self.train_column:
+            if self.cells_to_use is not None:
+                raise ValueError("cannot use both train_column and barcodes_to_use/cell_to_use")
+            self.cells_to_use = self.obs_df.loc[self.obs_df[self.train_column]]["soma_joinid"].values.tolist()
+            print("read cell list with length ", len(self.cells_to_use))
+
+        if self.cells_to_use is None:
             print("Using all cells found in obs")
             self.cells_to_use = self.obs_df["soma_joinid"].values.tolist()
 
@@ -304,43 +332,33 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         self.num_samples = len(self.samples_list) 
 
         # library calcs
-        if self.calc_library:
+        try:
+            with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
+                self.library_calcs = soma_experiment.ms["RNA"]["sample_library_calcs"].read().concat().to_pandas()
+                self.library_calcs = self.library_calcs.set_index("sample_idx")
+        except:
+            print() 
             self.filter_and_generate_library_calcs()
-        else:
-            try:
-                with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-                    self.library_calcs = soma_experiment.ms["RNA"]["sample_library_calcs"].read().concat().to_pandas()
-                    self.library_calcs = self.library_calcs.set_index("sample_idx")
-            except: 
-                raise ValueError("no library calcs found, please set library calcs to true")
+            
 
 
         self.obs_df = self.obs_df[self.obs_df["soma_joinid"].isin(self.cells_to_use)] 
-
-
 
         # downsample
         if self.max_cells_per_sample:
             self.obs_df = self.obs_df.groupby('sample_idx').apply(lambda x: x.sample(n=self.max_cells_per_sample, random_state=self.random_seed) if x.shape[0] > self.max_cells_per_sample else x).reset_index(drop=True)
             print("\tdownsampled to ", self.obs_df.shape[0], " cells")
 
-
-        # TODO: remove this
-        # self.obs_df = self.obs_df.loc[self.obs_df["dataset_name"] != "external_he_oncogene_2021_33144684__normal.lung"]
-
         # filter nnz
         if not self.calc_library:
-            self.obs_df = self.obs_df[self.obs_df["nnz"] > 300] # TODO: UNCOMMENT
-
-        self.num_studies = self.obs_df.dataset_idx.max() + 1 #TODO: off by one error to fix
-        self.num_batches = self.num_studies + self.num_samples
+            self.obs_df = self.obs_df[self.obs_df["nnz"] > 300] 
                 
         # define cell_idx as range
         self.obs_df['cell_idx'] = range(self.obs_df.shape[0])
 
         # shuffle obs
         if stage != "predict":
-            self.obs_df = self.obs_df.sample(frac=1, random_state=self.random_seed) 
+            self.obs_df = self.obs_df.sample(frac=1, random_state=self.random_seed).reset_index(drop=True)
 
         # calculate num blocks
         MIN_VAL_BLOCKS = 1
@@ -354,6 +372,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
      
         self.num_cells = self.obs_df.shape[0]
+
+        self.num_batches = self.num_modalities + self.num_studies + self.num_samples
         
         print('# Blocks: ', self.num_total_blocks)
         print('# Genes: ', self.num_genes)
@@ -376,29 +396,31 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             print('# Blocks: ', self.num_total_blocks, ' # for Training: ', self.train_blocks)
            
             self.train_dataset = TileDBSomaTorchIterDataset(
-                self.soma_experiment_uri,
-                self.obs_df[ : self.train_blocks * self.block_size],
-                self.num_samples,
-                self.num_studies,
-                self.num_genes,
-                self.genes_to_use,
-                self.feature_presence_matrix,
-                self.library_calcs,
-                self.block_size,
-                self.dataloader_args['num_workers'],
+                soma_experiment_uri=self.soma_experiment_uri,
+                obs_df=self.obs_df[ : self.train_blocks * self.block_size],
+                num_input=self.num_genes,
+                genes_to_use=self.genes_to_use,
+                feature_presence_matrix=self.feature_presence_matrix,
+                library_calcs=self.library_calcs,
+                block_size=self.block_size,
+                num_modalities=self.num_modalities,
+                num_studies=self.num_studies,
+                num_samples=self.num_samples,
+                num_workers=self.dataloader_args['num_workers'],
                 verbose = self.verbose
             )
             self.val_dataset = TileDBSomaTorchIterDataset(
-                self.soma_experiment_uri,
-                self.obs_df[self.train_blocks * self.block_size : ],
-                self.num_samples,
-                self.num_studies,
-                self.num_genes,
-                self.genes_to_use,
-                self.feature_presence_matrix,
-                self.library_calcs,
-                self.block_size,
-                self.dataloader_args['num_workers'],
+                soma_experiment_uri=self.soma_experiment_uri,
+                obs_df=self.obs_df[self.train_blocks * self.block_size : ],
+                num_input=self.num_genes,
+                genes_to_use=self.genes_to_use,
+                feature_presence_matrix=self.feature_presence_matrix,
+                library_calcs=self.library_calcs,
+                block_size=self.block_size,
+                num_modalities=self.num_modalities,
+                num_studies=self.num_studies,
+                num_samples=self.num_samples,
+                num_workers=self.dataloader_args['num_workers'],
                 verbose = self.verbose
             )
             
@@ -407,21 +429,16 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
     
             print("Stage = Predicting")
 
-            self.num_batches = self.pretrained_batch_size
             
             self.pred_dataset = TileDBSomaTorchIterDataset(
-                self.soma_experiment_uri, 
-                self.obs_df, 
-                self.num_samples,
-                self.num_studies,
-                self.num_genes,
-                self.genes_to_use,
-                self.feature_presence_matrix,
-                self.library_calcs,
-                self.block_size,
-                self.dataloader_args['num_workers'],
+                soma_experiment_uri=self.soma_experiment_uri,
+                obs_df=self.obs_df, 
+                num_input=self.num_genes,
+                genes_to_use=self.genes_to_use,
+                feature_presence_matrix=self.feature_presence_matrix,
+                block_size=self.block_size,
+                num_workers=self.dataloader_args['num_workers'],
                 predict_mode=True,
-                pretrained_batch_size = self.pretrained_batch_size,
                 pretrained_gene_indices = self.pretrained_gene_indices,
                 verbose = self.verbose
             )

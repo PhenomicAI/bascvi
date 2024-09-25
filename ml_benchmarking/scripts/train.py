@@ -14,6 +14,9 @@ from bascvi.utils.utils import umap_calc_and_save_html
 from bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 
 from pytorch_lightning.loggers import WandbLogger
+import wandb
+
+import wandb
 
 import wandb
 
@@ -44,6 +47,7 @@ def train(config: Dict):
         datamodule = TileDBSomaIterDataModule(**config["datamodule"]["options"])
 
     elif config["datamodule"]["class_name"] == "EmbDatamodule":
+        config["datamodule"]["options"]["root_dir"] = config["run_save_dir"]
         datamodule = EmbDatamodule(**config["datamodule"]["options"])
 
     elif config["datamodule"]["class_name"] == "AnnDataDataModule":

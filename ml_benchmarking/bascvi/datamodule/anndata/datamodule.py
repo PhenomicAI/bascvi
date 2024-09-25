@@ -1,6 +1,6 @@
 import copy
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import pytorch_lightning as pl
 
 from torch.utils.data import DataLoader 
@@ -15,23 +15,20 @@ class AnnDataDataModule(pl.LightningDataModule):
     def __init__(
         self,
         data_root_dir: str = "",
-        gene_list_path: str = "",
-        dataset_args: Dict = {},
         dataloader_args: Dict = {},
-        pretrained_batch_size: int = None
+        pretrained_batch_size: int = None,
+        pretrained_gene_list: List[str] = None,
     ):
         super().__init__()
         self.data_root_dir = data_root_dir
-        # self.batch_keys = batch_keys
-        # self.filter_genes = filter_genes
-        self.dataset_args = dataset_args
         self.dataloader_args = dataloader_args
-        # self.use_l=True
-        # self.batch_dict = batch_dict
         self.pretrained_batch_size = pretrained_batch_size
+        self.pretrained_gene_list = pretrained_gene_list
 
-        with open(gene_list_path, "r") as f:
-            self.reference_gene_list =  f.read().split("\n")
+        assert os.path.exists(data_root_dir), f"Data root directory {data_root_dir} does not exist"
+
+        # with open(gene_list_path, "r") as f:
+        #     self.reference_gene_list =  f.read().split("\n")
 
     def setup(self, stage: Optional[str] = None):
             
@@ -76,13 +73,12 @@ class AnnDataDataModule(pl.LightningDataModule):
             print("Pretrained batch size: ", self.pretrained_batch_size)
             
             self.pred_dataset = AnnDataDataset(
-                self.file_paths,
-                self.reference_gene_list,
-                self.adata_len_dict,
-                self.pretrained_batch_size,
-                self.dataloader_args['num_workers'],
+                file_paths=self.file_paths,
+                reference_gene_list=self.pretrained_gene_list,
+                adata_len_dict=self.adata_len_dict,
+                num_batches=self.pretrained_batch_size,
+                num_workers=self.dataloader_args['num_workers'],
                 predict_mode=True,
-                **self.dataset_args
             )
             
 
