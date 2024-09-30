@@ -270,6 +270,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             exclusion_regex = r'^(MT-|RPL|RPS|MRPL|MRPS)' # starts with one of these => mito, or ribo
             genes_to_exclude = set(self.var_df[self.var_df["gene"].str.contains(exclusion_regex)]["soma_joinid"].values)
             self.genes_to_use = list(set(self.genes_to_use).difference(genes_to_exclude))
+
         if self.pretrained_gene_list:
             self.pretrained_gene_ids = self.var_df[self.var_df["gene"].isin(self.pretrained_gene_list)].soma_joinid.values.tolist()
             self.genes_to_use = list(set(self.pretrained_gene_ids).intersection(set(self.genes_to_use)))
@@ -279,16 +280,15 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.var_df_sub = self.var_df[self.var_df["soma_joinid"].isin(self.genes_to_use)]
             self.var_df_sub = self.var_df_sub.sort_values("gene")
 
-            self.gene_list = self.var_df_sub["gene"].values.tolist()
+            self.soma_gene_name_list = self.var_df_sub["gene"].values.tolist()
             self.genes_to_use = self.var_df_sub["soma_joinid"].values.tolist()
 
-            # get indices of genes in genes_to_use
-            self.pretrained_gene_indices = [self.pretrained_gene_list.index(gene) for gene in self.gene_list]
+            # get indices of genes in pretrained_gene_list in order of soma_gene_name_list
+            self.pretrained_gene_indices = [self.pretrained_gene_list.index(gene) for gene in self.soma_gene_name_list]
 
             self.num_genes = len(self.pretrained_gene_list)
 
             print("pretrained gene indices: ", len(self.pretrained_gene_indices))
-            print("genes to use: ", len(self.gene_list))
             print("pretrained gene list: ", len(self.pretrained_gene_list))
             print("max gene index: ", max(self.pretrained_gene_indices))
         else:
@@ -296,7 +296,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.var_df_sub = self.var_df[self.var_df["soma_joinid"].isin(self.genes_to_use)]
             self.var_df_sub = self.var_df_sub.sort_values("gene")
 
-            self.gene_list = self.var_df_sub["gene"].values.tolist()
+            self.soma_gene_name_list = self.var_df_sub["gene"].values.tolist()
             self.genes_to_use = self.var_df_sub["soma_joinid"].values.tolist()
 
             self.pretrained_gene_indices = None
