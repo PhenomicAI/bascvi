@@ -53,6 +53,7 @@ class BAScVI(nn.Module):
         use_library = True,
         use_batch_encoder = True,
         use_zinb = True,
+        macrogene_matrix = None,
     ):
         super().__init__()
 
@@ -73,9 +74,13 @@ class BAScVI(nn.Module):
 
         self.px_r = torch.nn.Parameter(torch.randn(n_input))
 
+        if macrogene_matrix:
+            self.macrogene_matrix = torch.nn.Parameter(macrogene_matrix)
+
+
         # z encoder goes from the n_input-dimensional data to an n_latent-d
         # latent space representation
-        n_input_encoder = n_input
+        n_input_encoder = n_input if self.macrogene_matrix is None else self.macrogene_matrix.shape[1]
         
         self.z_encoder = BEncoder(
             n_input=n_input_encoder,
@@ -104,6 +109,7 @@ class BAScVI(nn.Module):
             n_output=n_input,
             n_layers=n_layers,
             n_hidden=n_hidden,
+            macrogene_dim=macrogene_matrix.shape[1] if macrogene_matrix is not None else None,
         )
         
         self.z_predictor = BPredictor(
@@ -119,6 +125,7 @@ class BAScVI(nn.Module):
         
         if init_weights:
             self.apply(self.init_weights)
+
 
     @torch.no_grad()
     def init_weights(self, m):
@@ -166,6 +173,7 @@ class BAScVI(nn.Module):
             decoder_input,
             batch_emb,
             library=library,
+            macrogene_matrix=self.macrogene_matrix,
         )
 
         px_r = self.px_r
@@ -180,8 +188,6 @@ class BAScVI(nn.Module):
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, Dict],]:
         
         x = batch["x"]
-
-        # TODO: check that X is raw counts
 
         if not predict_mode:
             modality_vec = batch["modality_vec"]
@@ -206,6 +212,9 @@ class BAScVI(nn.Module):
         elif self.normalize_total:
             x_ = torch.log(1 + self.scaling_factor * x / x.sum(dim=1, keepdim=True))
 
+        if self.macrogene_matrix:
+            x_ = nn.functional.linear(x_, self.macrogenes)
+
         inference_outputs = self.inference(x_, batch_vec)
 
         if encode:
@@ -218,6 +227,7 @@ class BAScVI(nn.Module):
             generative_outputs = self.generative(z, batch_vec, library=library)
         else:
             generative_outputs = self.generative(z, batch_vec)
+
 
         if compute_loss:
             losses = self.loss(

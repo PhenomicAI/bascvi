@@ -14,6 +14,8 @@ import os, shutil
 from bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 
 import wandb
+from bascvi.utils.protein_embeddings import get_stacked_protein_embeddings_matrix
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -70,6 +72,10 @@ class BAScVITrainer(pl.LightningModule):
         # getting attribute by getattr() method
         Vae = getattr(module, class_name)
 
+        if self.use_macrogenes:
+            macrogene_matrix = torch.from_numpy(get_stacked_protein_embeddings_matrix("/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/ESM2", gene_list=self.gene_list))
+            model_args["macrogene_matrix"] = macrogene_matrix
+
         self.vae = Vae(**model_args)
 
         logger.info(f"{module_name} model args:\n {model_args}")
@@ -84,6 +90,7 @@ class BAScVITrainer(pl.LightningModule):
 
         if os.path.isdir(os.path.join(self.root_dir, "validation_umaps")):
             shutil.rmtree(os.path.join(self.root_dir, "validation_umaps"))
+   
 
     def configure_callbacks(
         self,

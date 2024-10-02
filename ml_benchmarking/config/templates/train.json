@@ -22,6 +22,7 @@
     "emb_trainer": {
         "module_name": "bascvi",
         "class_name": "BAScVI",
+        "use_macrogenes": true,
         "model_args": {
             "n_hidden": 512,
             "n_latent": 10,
