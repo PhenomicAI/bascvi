@@ -1,16 +1,15 @@
 {
     "mode": "train",
 
-    "run_save_dir": "./runs/scref_train/",
+    "run_save_dir": "./runs/scref_plus_mu_macrogenes/",
     
     "datamodule": {
         "class_name": "TileDBSomaIterDataModule",
         "options": {
-            "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/",
-            "train_column": "included_scref_train",
-            "genes_to_use_path": "./genes_2ksamples_10cells.txt",
-            "block_size": 100000,
-            "calc_library": false,
+            "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/combined_scref_no_ortho/",
+            "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/ml_benchmarking/human_mouse_train_small.pkl",
+            "block_size": 20000,
+            "calc_library": true,
             "random_seed": 42,
             "dataloader_args": {
                 "batch_size": 64,
@@ -22,13 +21,14 @@
     "emb_trainer": {
         "module_name": "bascvi",
         "class_name": "BAScVI",
+        "use_macrogenes": true,
         "model_args": {
             "n_hidden": 512,
             "n_latent": 10,
             "n_layers": 4,
             "scaling_factor": 1.0,
             "init_weights": false,
-            "use_library": true,
+            "use_library": false,
             "use_batch_encoder": true
         },
         "training_args": {
