@@ -41,7 +41,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         pretrained_batch_size: int = None,
         verbose: bool = False,
         exclude_ribo_mito = True,
-        train_column: str = "included_scref_train",
+        train_column: str = None,
         random_seed: int = 42,
         batch_keys = {"modality": "modality_name", "study": "study_name", "sample": "sample_idx"}
         ):
@@ -67,7 +67,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
     
 
-    def filter_and_generate_library_calcs(self):
+    def filter_and_generate_library_calcs(self, iterative = True):
 
         if os.path.isdir(os.path.join(self.root_dir, "cached_calcs_and_filter")):
             print("Loading cached metadata...")
@@ -103,81 +103,108 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
         # TODO: ensure sample list is sorted
 
-        sample_idx = self.samples_list[len(samples_run)]
-        print("starting with ", sample_idx)
+        if iterative:
+            sample_idx = self.samples_list[len(samples_run)]
+            print("starting with ", sample_idx)
 
-        for sample_idx_i in tqdm(range(len(samples_run), len(self.samples_list))):
-            sample_idx = self.samples_list[sample_idx_i]
+            for sample_idx_i in tqdm(range(len(samples_run), len(self.samples_list))):
+                sample_idx = self.samples_list[sample_idx_i]
+                
+                # read soma_ids for this sample
+                soma_ids_in_sample = self.obs_df[self.obs_df["sample_idx"] == sample_idx]["soma_joinid"].values.tolist()
+                # with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
+                #     obs_table = soma_experiment.obs.read(
+                #         column_names=("soma_joinid",),
+                #         value_filter=f"sample_idx == {sample_idx}",
+                #     ).concat()
+
+                #     row_coord = obs_table.column("soma_joinid").combine_chunks().to_numpy()
+                
+                # if no rows selected, return default
+                if len(soma_ids_in_sample) < 1:
+                    print("skipping calcs for ", sample_idx, ", not enough cells")
+                    self.l_means.append(0)
+                    self.l_vars.append(1)
+                    samples_run.append(sample_idx)
+                    self.library_calcs = pd.DataFrame({"sample_idx": samples_run, 
+                                                "library_log_means": self.l_means,  
+                                                "library_log_vars": self.l_vars})
+                    # save                         
+                    self.library_calcs.to_csv(os.path.join(self.root_dir, "cached_calcs_and_filter", "l_means_vars.csv"))
+                    continue
+
+                # if no counts in selected rows, return default
+                try:
+                    with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
+                        X_curr = soma_experiment.ms["RNA"]["X"]["row_raw"].read((soma_ids_in_sample, None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[soma_ids_in_sample, :]
+                        X_curr = X_curr[:, self.genes_to_use]
+                except ArrowInvalid:
+                    print("skipping calcs for ", sample_idx, ", not enough counts")
+                    self.l_means.append(0)
+                    self.l_vars.append(1)
+                    samples_run.append(sample_idx)
+                    self.library_calcs = pd.DataFrame({"sample_idx": samples_run, 
+                                                "library_log_means": self.l_means,  
+                                                "library_log_vars": self.l_vars})
+                    # save                         
+                    self.library_calcs.to_csv(os.path.join(self.root_dir, "cached_calcs_and_filter", "l_means_vars.csv"))
+                    continue
+
+                # get nnz and filter
+                gene_counts = X_curr.getnnz(axis=1)
+                cell_mask = gene_counts > 300 
+                X_curr = X_curr[cell_mask, :]
+                    
+                print("sample ", sample_idx, ", X shape: ", X_curr.shape)
+
+                # calc l_mean, l_var
+                self.l_means.append(log_mean(X_curr))
+                self.l_vars.append(log_var(X_curr))
+                samples_run.append(sample_idx)
+
+                # apply filter mask to soma_joinids and downsample
+                filter_pass_soma_ids += np.array(soma_ids_in_sample)[cell_mask].tolist()
+
+                # save intermediate filter pass list
+                with open(os.path.join(self.root_dir, "cached_calcs_and_filter", 'filter_pass_soma_ids.pkl'), 'wb') as f:
+                    pickle.dump(filter_pass_soma_ids, f)
+                
+                # save intermediate library calcs   
+                self.library_calcs = pd.DataFrame({"sample_idx": samples_run, 
+                                                    "library_log_means": self.l_means,
+                                                    "library_log_vars": self.l_vars})                
+                self.library_calcs.to_csv(os.path.join(self.root_dir, "cached_calcs_and_filter", "l_means_vars.csv"))
             
-            # read soma_ids for this sample
+        else:
+            samples_run = []
+            self.l_means = []
+            self.l_vars = []
             with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-                obs_table = soma_experiment.obs.read(
-                    column_names=("soma_joinid",),
-                    value_filter=f"sample_idx == {sample_idx}",
-                ).concat()
+                X = soma_experiment.ms["RNA"]["X"]["row_raw"].read(coords=(self.obs_df.soma_joinid.values.tolist(), )).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.obs_df.soma_joinid.values.tolist(), :]
+                X = X[:, self.genes_to_use]
+                gene_counts = X.getnnz(axis=1)
+                cell_mask = gene_counts > 300
+                X = X[cell_mask, :]
+                filtered_obs = self.obs_df.loc[cell_mask]
+                filter_pass_soma_ids = self.obs_df["soma_joinid"].to_numpy()[cell_mask].tolist()
+                for sample_idx in tqdm(self.samples_list):
+                    rows = (filtered_obs["sample_idx"] == sample_idx).values
+                    cols = self.feature_presence_matrix[sample_idx, :].astype(bool)
+                    sub_X = X[rows, :]
+                    sub_X = sub_X[:, cols]
+                    self.l_means.append(log_mean(sub_X))
+                    self.l_vars.append(log_var(sub_X))
+                    samples_run.append(sample_idx)
 
-                row_coord = obs_table.column("soma_joinid").combine_chunks().to_numpy()
-            
-            # if no rows selected, return default
-            if row_coord.shape[0] < 1:
-                print("skipping calcs for ", sample_idx, ", not enough cells")
-                self.l_means.append(0)
-                self.l_vars.append(1)
-                samples_run.append(sample_idx)
-                self.library_calcs = pd.DataFrame({"sample_idx": samples_run, 
-                                            "library_log_means": self.l_means,  
-                                            "library_log_vars": self.l_vars})
-                # save                         
-                self.library_calcs.to_csv(os.path.join(self.root_dir, "cached_calcs_and_filter", "l_means_vars.csv"))
-                continue
-
-            # if no counts in selected rows, return default
-            try:
-                with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-                    X_curr = soma_experiment.ms["RNA"]["X"]["row_raw"].read((row_coord, None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[row_coord, :]
-                    X_curr = X_curr[:, self.genes_to_use]
-            except ArrowInvalid:
-                print("skipping calcs for ", sample_idx, ", not enough counts")
-                self.l_means.append(0)
-                self.l_vars.append(1)
-                samples_run.append(sample_idx)
-                self.library_calcs = pd.DataFrame({"sample_idx": samples_run, 
-                                            "library_log_means": self.l_means,  
-                                            "library_log_vars": self.l_vars})
-                # save                         
-                self.library_calcs.to_csv(os.path.join(self.root_dir, "cached_calcs_and_filter", "l_means_vars.csv"))
-                continue
-
-            # get nnz and filter
-            gene_counts = X_curr.getnnz(axis=1)
-            cell_mask = gene_counts > 300 
-            X_curr = X_curr[cell_mask, :]
-                   
-            print("sample ", sample_idx, ", X shape: ", X_curr.shape)
-
-            # calc l_mean, l_var
-            self.l_means.append(log_mean(X_curr))
-            self.l_vars.append(log_var(X_curr))
-            samples_run.append(sample_idx)
-
-            # apply filter mask to soma_joinids and downsample
-            filter_pass_soma_ids += row_coord[cell_mask].tolist()
-
-            # save intermediate filter pass list
-            with open(os.path.join(self.root_dir, "cached_calcs_and_filter", 'filter_pass_soma_ids.pkl'), 'wb') as f:
-                pickle.dump(filter_pass_soma_ids, f)
-            
-            # save intermediate library calcs   
             self.library_calcs = pd.DataFrame({"sample_idx": samples_run, 
-                                                "library_log_means": self.l_means,
-                                                "library_log_vars": self.l_vars})                
-            self.library_calcs.to_csv(os.path.join(self.root_dir, "cached_calcs_and_filter", "l_means_vars.csv"))
+                                            "library_log_means": self.l_means,  
+                                            "library_log_vars": self.l_vars})
 
         # save                         
         self.library_calcs.to_csv(os.path.join(self.root_dir, "cached_calcs_and_filter", "l_means_vars.csv"))
 
-        self.cells_to_use = list(set(self.cells_to_use).intersection(set(filter_pass_soma_ids)))
-        print(len(self.cells_to_use), " cells passed final filter.")
+        self.filter_pass_soma_ids = set(filter_pass_soma_ids)
+        print(len(self.filter_pass_soma_ids), " cells passed final filter.")
         self.library_calcs.set_index("sample_idx")
 
 
@@ -299,9 +326,12 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.soma_gene_name_list = self.var_df_sub["gene"].values.tolist()
             self.genes_to_use = self.var_df_sub["soma_joinid"].values.tolist()
 
+            self.gene_list = self.soma_gene_name_list
+
             self.pretrained_gene_indices = None
 
             self.num_genes = len(self.genes_to_use)
+
 
         self.feature_presence_matrix = self.feature_presence_matrix[:, self.genes_to_use]
                
@@ -331,23 +361,22 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         self.samples_list = sorted(self.obs_df["sample_idx"].unique().tolist())
         self.num_samples = len(self.samples_list) 
 
+        # downsample
+        if self.max_cells_per_sample:
+            self.obs_df = self.obs_df.groupby('sample_idx').apply(lambda x: x.sample(n=self.max_cells_per_sample, random_state=self.random_seed) if x.shape[0] > self.max_cells_per_sample else x).reset_index(drop=True)
+            print("\tdownsampled to ", self.obs_df.shape[0], " cells")
+
+        # filter cells
+        self.obs_df = self.obs_df[self.obs_df["soma_joinid"].isin(self.cells_to_use)] 
+
         # library calcs
         try:
             with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
                 self.library_calcs = soma_experiment.ms["RNA"]["sample_library_calcs"].read().concat().to_pandas()
                 self.library_calcs = self.library_calcs.set_index("sample_idx")
         except:
-            print() 
-            self.filter_and_generate_library_calcs()
-            
-
-
-        self.obs_df = self.obs_df[self.obs_df["soma_joinid"].isin(self.cells_to_use)] 
-
-        # downsample
-        if self.max_cells_per_sample:
-            self.obs_df = self.obs_df.groupby('sample_idx').apply(lambda x: x.sample(n=self.max_cells_per_sample, random_state=self.random_seed) if x.shape[0] > self.max_cells_per_sample else x).reset_index(drop=True)
-            print("\tdownsampled to ", self.obs_df.shape[0], " cells")
+            self.filter_and_generate_library_calcs(iterative = (self.obs_df.shape[0] > 500000))
+            self.obs_df = self.obs_df[self.obs_df["soma_joinid"].isin(self.filter_pass_soma_ids)]
 
         # filter nnz
         if not self.calc_library:
