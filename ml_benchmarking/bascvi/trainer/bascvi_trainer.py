@@ -179,7 +179,7 @@ class BAScVITrainer(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         encoder_outputs, _, g_losses = self.forward(batch, kl_weight=self.kl_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
         
-        g_losses = {f"train_{k}": v for k, v in g_losses.items()}
+        g_losses = {f"val_{k}": v for k, v in g_losses.items()}
         self.log_dict(g_losses, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         qz_m = encoder_outputs["qz_m"]
