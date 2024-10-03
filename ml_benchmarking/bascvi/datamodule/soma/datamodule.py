@@ -303,6 +303,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
             self.num_genes = len(self.genes_to_use)
 
+            self.gene_list = self.soma_gene_name_list
+
         self.feature_presence_matrix = self.feature_presence_matrix[:, self.genes_to_use]
                
         # CELLS
