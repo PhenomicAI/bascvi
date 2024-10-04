@@ -16,6 +16,9 @@ from bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 import wandb
 from bascvi.utils.protein_embeddings import get_stacked_protein_embeddings_matrix
 
+from sklearn.preprocessing import StandardScaler
+
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -36,6 +39,7 @@ class BAScVITrainer(pl.LightningModule):
         gene_list: list = None,
         n_input: int = None,
         n_batch: int = None,
+        use_macrogenes: bool = False,
     ):
         super().__init__()
         # save hyperparameters in hparams.yaml file
@@ -62,8 +66,9 @@ class BAScVITrainer(pl.LightningModule):
         self.use_library = training_args.get("use_library")
         self.save_validation_umaps = training_args.get("save_validation_umaps")
 
-        self.gene_list = self.model_args.get("gene_list", None)
+        self.gene_list = gene_list
 
+        self.use_macrogenes = use_macrogenes
 
         # neat way to dynamically import classes
         # __import__ method used to fetch module
@@ -73,8 +78,12 @@ class BAScVITrainer(pl.LightningModule):
         Vae = getattr(module, class_name)
 
         if self.use_macrogenes:
-            macrogene_matrix = torch.from_numpy(get_stacked_protein_embeddings_matrix("/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/ESM2", gene_list=self.gene_list))
-            model_args["macrogene_matrix"] = macrogene_matrix
+            macrogene_matrix = get_stacked_protein_embeddings_matrix("/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/ESM2", gene_list=self.gene_list, species_list=['human', 'mouse'])
+            # scale macrogene matrix
+            scaler = StandardScaler()
+            macrogene_matrix = scaler.fit_transform(macrogene_matrix)
+
+            model_args["macrogene_matrix"] = torch.from_numpy(macrogene_matrix).float()
 
         self.vae = Vae(**model_args)
 
@@ -186,7 +195,7 @@ class BAScVITrainer(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         encoder_outputs, _, g_losses = self.forward(batch, kl_weight=self.kl_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
         
-        g_losses = {f"train_{k}": v for k, v in g_losses.items()}
+        g_losses = {f"val_{k}": v for k, v in g_losses.items()}
         self.log_dict(g_losses, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         qz_m = encoder_outputs["qz_m"]
@@ -214,7 +223,7 @@ class BAScVITrainer(pl.LightningModule):
             embeddings_df = embeddings_df.set_index("soma_joinid").join(self.datamodule.obs_df.set_index("soma_joinid"))
             save_dir = os.path.join(self.root_dir, "validation_umaps", str(self.valid_counter))
             os.makedirs(save_dir, exist_ok=True)
-            embeddings_df, fig_path_dict = umap_calc_and_save_html(embeddings_df, emb_columns, save_dir, color_by=["standard_true_celltype", "study_name", "batch_name", "tissue_primary"])
+            embeddings_df, fig_path_dict = umap_calc_and_save_html(embeddings_df, emb_columns, save_dir)#, color_by=["standard_true_celltype", "study_name", "batch_name", "tissue_primary"])
 
             for key, fig_path in fig_path_dict.items():
                 metrics_to_log[key] = wandb.Image(fig_path, caption=key)

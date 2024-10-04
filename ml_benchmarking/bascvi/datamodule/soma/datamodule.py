@@ -73,7 +73,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             print("Loading cached metadata...")
 
             with open(os.path.join(self.root_dir, "cached_calcs_and_filter", 'filter_pass_soma_ids.pkl'), 'rb') as f:
-                filter_pass_soma_ids = pickle.load(f)
+                self.filter_pass_soma_ids = pickle.load(f)
             print(" - loaded cached filter pass")
 
             self.library_calcs = pd.read_csv(os.path.join(self.root_dir, "cached_calcs_and_filter", 'l_means_vars.csv'))
@@ -83,7 +83,6 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             if max(self.library_calcs["sample_idx"].to_list()) == max(self.samples_list):
                 print("   - library calcs completed!")
                 self.library_calcs.set_index("sample_idx")
-                self.cells_to_use = list(set(self.cells_to_use).intersection(set(filter_pass_soma_ids)))
                 print(len(self.cells_to_use), " cells passed final filter.")
                 return 
             else:
@@ -201,9 +200,11 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
                                             "library_log_vars": self.l_vars})
 
         # save                         
-        self.library_calcs.to_csv(os.path.join(self.root_dir, "cached_calcs_and_filter", "l_means_vars.csv"))
-
         self.filter_pass_soma_ids = set(filter_pass_soma_ids)
+        self.library_calcs.to_csv(os.path.join(self.root_dir, "cached_calcs_and_filter", "l_means_vars.csv"))
+        with open(os.path.join(self.root_dir, "cached_calcs_and_filter", 'filter_pass_soma_ids.pkl'), 'wb') as f:
+            pickle.dump(self.filter_pass_soma_ids, f)
+
         print(len(self.filter_pass_soma_ids), " cells passed final filter.")
         self.library_calcs.set_index("sample_idx")
 

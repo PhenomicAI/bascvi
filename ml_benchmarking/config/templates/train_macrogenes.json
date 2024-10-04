@@ -8,12 +8,13 @@
         "options": {
             "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/combined_scref_no_ortho/",
             "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/ml_benchmarking/human_mouse_train_small.pkl",
-            "block_size": 20000,
+            "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/notebooks/human_mouse_genes_with_protein_embeddings.txt",
+            "block_size": 80000,
             "calc_library": true,
             "random_seed": 42,
             "dataloader_args": {
                 "batch_size": 64,
-                "num_workers": 4,
+                "num_workers": 2,
                 "pin_memory": true
             }
         }
@@ -23,17 +24,17 @@
         "class_name": "BAScVI",
         "use_macrogenes": true,
         "model_args": {
-            "n_hidden": 512,
+            "n_hidden": 256,
             "n_latent": 10,
-            "n_layers": 4,
+            "n_layers": 2,
             "scaling_factor": 1.0,
             "init_weights": false,
-            "use_library": false,
+            "use_library": true,
             "use_batch_encoder": true
         },
         "training_args": {
             "n_epochs_discriminator_warmup": 5,
-            "disc_loss_weight": 1000.0,
+            "disc_loss_weight": 10000.0,
             "kl_loss_weight": 1.0,
             "lr_scheduler_metric": "train_loss",
             "save_validation_umaps": false,

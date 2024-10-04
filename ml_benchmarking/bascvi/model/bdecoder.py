@@ -108,7 +108,7 @@ class BDecoder(nn.Module):
         px_scale = self.px_scale_decoder(px)
 
         if macrogene_matrix is not None:
-            px_scale = nn.functional.linear(px_scale.unsqueeze(0), self.macrogene_matrix.t())
+            px_scale = nn.functional.linear(px_scale.unsqueeze(0), macrogene_matrix)
             px_scale = nn.Softmax(-1)(px_scale.squeeze())
 
         px_dropout = self.px_dropout_decoder(px)

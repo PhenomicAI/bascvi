@@ -74,13 +74,17 @@ class BAScVI(nn.Module):
 
         self.px_r = torch.nn.Parameter(torch.randn(n_input))
 
-        if macrogene_matrix:
-            self.macrogene_matrix = torch.nn.Parameter(macrogene_matrix)
+        if macrogene_matrix is not None:
+            self.macrogene_matrix = torch.nn.Parameter(macrogene_matrix, requires_grad=False)
+            # freeze the macrogene matrix
+            assert self.macrogene_matrix.requires_grad == False
+            print("Using macrogene matrix:", self.macrogene_matrix.shape)
 
 
         # z encoder goes from the n_input-dimensional data to an n_latent-d
         # latent space representation
         n_input_encoder = n_input if self.macrogene_matrix is None else self.macrogene_matrix.shape[1]
+    
         
         self.z_encoder = BEncoder(
             n_input=n_input_encoder,
@@ -212,8 +216,8 @@ class BAScVI(nn.Module):
         elif self.normalize_total:
             x_ = torch.log(1 + self.scaling_factor * x / x.sum(dim=1, keepdim=True))
 
-        if self.macrogene_matrix:
-            x_ = nn.functional.linear(x_, self.macrogenes)
+        if self.macrogene_matrix is not None:
+            x_ = nn.functional.linear(x_, self.macrogene_matrix.transpose(0, 1))
 
         inference_outputs = self.inference(x_, batch_vec)
 
