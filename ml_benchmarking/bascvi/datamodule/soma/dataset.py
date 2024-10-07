@@ -104,6 +104,10 @@ class TileDBSomaTorchIterDataset(IterableDataset):
             self.start_block = 0
             self.end_block = self.num_blocks
 
+        # Reset counters at the start of each epoch (this is for persistent workers)
+        self.block_counter = 0
+        self.cell_counter = 0
+
         if self.verbose:
             print("start block, end block, block_size: ", self.start_block, self.end_block, self.block_size)
         return self
@@ -152,7 +156,7 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                         # self.X_block = soma_experiment.ms["RNA"]["X"][self.X_array_name].read((tuple(self.soma_joinid_block), None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.soma_joinid_block, :]
 
                         with soma_experiment.axis_query("RNA", obs_query=soma.AxisQuery(coords=(tuple(self.soma_joinid_block),))) as query:
-                            self.X_block = query.to_anndata(X_name=self.X_array_name, column_names={"obs":["soma_joinid"], "var":["gene"]}).X
+                            self.X_block = query.to_anndata(X_name=self.X_array_name, column_names={"obs":[], "var":[]}).X
 
                         self.X_block = self.X_block[:, self.genes_to_use]
 

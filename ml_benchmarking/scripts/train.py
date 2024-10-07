@@ -63,6 +63,8 @@ def train(config: Dict):
     config['emb_trainer']['model_args']['n_input'] = datamodule.num_genes
     config['emb_trainer']['model_args']['n_batch'] = datamodule.num_batches
 
+    config["emb_trainer"]["soma_experiment_uri"] = datamodule.soma_experiment_uri
+
     # dynamically import trainer class
     module = __import__("bascvi.trainer", globals(), locals(), [config["trainer_module_name"] if "trainer_module_name" in config else "bascvi_trainer"], 0)
     EmbeddingTrainer = getattr(module, config["trainer_class_name"] if "trainer_class_name" in config else "BAScVITrainer")

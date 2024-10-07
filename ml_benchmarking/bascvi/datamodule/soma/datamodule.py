@@ -22,6 +22,8 @@ import math
 
 from .soma_helpers import open_soma_experiment
 
+import time
+
 
 class TileDBSomaIterDataModule(pl.LightningDataModule):
 
@@ -259,15 +261,22 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
         # genes to use
         if self.genes_to_use_path:
+            
+            # for macrogenes, need consistent gene names
+            self.var_df["gene"] = self.var_df["gene"].str.lower()
+
             # load genes to use list
             with open(self.genes_to_use_path, "r") as f:
                 self.genes_to_use = f.read().split("\n")
-                self.genes_to_use = list(set(self.genes_to_use).intersection(set(self.var_df["gene"].values.tolist())))
-
+                # ensure all genes are lowercase
+                self.genes_to_use = [g.lower() for g in self.genes_to_use]
+                self.genes_to_use = list(set(self.genes_to_use).intersection(set(self.var_df["gene"].tolist())))
             self.var_df = self.var_df.set_index("gene")
             self.genes_to_use = list(set(self.var_df.loc[self.genes_to_use, :]["soma_joinid"].values.tolist()))
             self.var_df = self.var_df.reset_index()
+
             print("read gene list with length ", len(self.genes_to_use), len(set(self.genes_to_use)))
+
         elif self.genes_to_use_hvg:
             # run hvg
             print("Running HVG with n_hvg = ", self.genes_to_use_hvg)
@@ -474,11 +483,11 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             )
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, **self.dataloader_args)
+        return DataLoader(self.train_dataset, persistent_workers=True, worker_init_fn=staggered_worker_init, **self.dataloader_args)
 
     def val_dataloader(self):
         loader_args = copy.copy(self.dataloader_args)
-        return DataLoader(self.val_dataset, **loader_args)
+        return DataLoader(self.val_dataset, persistent_workers=True, worker_init_fn=staggered_worker_init, **loader_args)
 
     def predict_dataloader(self):
         loader_args = copy.copy(self.dataloader_args)
@@ -500,3 +509,7 @@ def log_var(X):
     local_var = np.var(log_counts).astype(np.float32)
     return local_var
 
+
+def staggered_worker_init(worker_id):
+    """Custom worker init function to stagger the initialization."""
+    time.sleep(worker_id * 0)  # Sleep for some time depending on worker_id

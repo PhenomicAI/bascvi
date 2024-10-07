@@ -31,6 +31,7 @@ class BAScVITrainer(pl.LightningModule):
     def __init__(
         self,
         root_dir,
+        soma_experiment_uri: str = None,
         model_args: dict = {},
         training_args: dict = {},
         callbacks_args: dict = {},
@@ -47,6 +48,9 @@ class BAScVITrainer(pl.LightningModule):
 
         self.root_dir = root_dir
         self.valid_counter = 0
+
+        self.soma_experiment_uri = soma_experiment_uri
+        self.obs_df = None
 
         self.model_args = model_args
 
@@ -80,8 +84,10 @@ class BAScVITrainer(pl.LightningModule):
         if self.use_macrogenes:
             macrogene_matrix = get_stacked_protein_embeddings_matrix("/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/ESM2", gene_list=self.gene_list, species_list=['human', 'mouse'])
             # scale macrogene matrix
-            scaler = StandardScaler()
-            macrogene_matrix = scaler.fit_transform(macrogene_matrix)
+            # scaler = StandardScaler()
+            # macrogene_matrix = scaler.fit_transform(macrogene_matrix)
+            # normalize macrogene matrix dividing by sum of each row
+            macrogene_matrix = macrogene_matrix / macrogene_matrix.sum(axis=1, keepdims=True)
 
             model_args["macrogene_matrix"] = torch.from_numpy(macrogene_matrix).float()
 
@@ -215,15 +221,20 @@ class BAScVITrainer(pl.LightningModule):
             embeddings = torch.cat(self.validation_step_outputs, dim=0).detach().cpu().numpy()
             emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1])[:-1]] 
             embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["soma_joinid"])
-            # if self.obs_df = None:
-            #     with open_soma_experiment(self.datamodule.soma_experiment_uri) as soma_experiment:
-            #         self.obs_df = soma_experiment.obs.read(
-            #                             column_names=("soma_joinid", "standard_true_celltype", "sample_name", "study_name"),
-            #                         ).concat().to_pandas()
-            embeddings_df = embeddings_df.set_index("soma_joinid").join(self.datamodule.obs_df.set_index("soma_joinid"))
+           
             save_dir = os.path.join(self.root_dir, "validation_umaps", str(self.valid_counter))
             os.makedirs(save_dir, exist_ok=True)
-            embeddings_df, fig_path_dict = umap_calc_and_save_html(embeddings_df, emb_columns, save_dir)#, color_by=["standard_true_celltype", "study_name", "batch_name", "tissue_primary"])
+
+            color_by_columns = ["standard_true_celltype", "study_name"]
+            if self.use_macrogenes:
+                color_by_columns.append("species")
+
+            if self.obs_df is None:
+                with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
+                    self.obs_df = soma_experiment.obs.read(column_names=['soma_joinid'] + color_by_columns).concat().to_pandas()
+            embeddings_df = embeddings_df.set_index("soma_joinid").join(self.obs_df.set_index("soma_joinid"))
+
+            embeddings_df, fig_path_dict = umap_calc_and_save_html(embeddings_df, emb_columns, save_dir, color_by_columns, max_cells=100000)
 
             for key, fig_path in fig_path_dict.items():
                 metrics_to_log[key] = wandb.Image(fig_path, caption=key)
