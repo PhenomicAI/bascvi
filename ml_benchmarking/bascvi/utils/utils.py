@@ -44,34 +44,31 @@ def umap_calc_and_save_html(
     assert set(emb_columns).issubset(set(embeddings.columns)), "emb_columns not in embeddings columns"
     assert set(color_by_columns).issubset(set(embeddings.columns)), "color_by_columns not in embeddings columns"
 
-    if not load_model:
-        # if num cells is greater than max_cells, downsample to max_cells
-        if embeddings.shape[0] > max_cells:
-            embeddings = embeddings.sample(n=max_cells, replace=False)
+    # run UMAP
+    umap_model = UMAP(n_components=2, n_neighbors=15, min_dist=0.15, transform_seed=42)
+    model = umap_model.fit(embeddings[emb_columns])
 
-        # run UMAP
-        umap_model = UMAP(n_components=2, n_neighbors=15, min_dist=0.15, transform_seed=42)
-        model = umap_model.fit(embeddings[emb_columns])
-    
-    if save_model:
-        with open(os.path.join(save_dir, f"model.pkl"), 'wb') as f_handle:
-            pkl.dump(model, f_handle, protocol=pkl.HIGHEST_PROTOCOL)
-
-    if load_model:
-        with open(load_model, 'rb') as f_handle:
-            model = pkl.load(f_handle)
 
     umap_transformed = model.transform(embeddings[emb_columns])
 
-    _x, _y = "umap_0", "umap_1"
-    embeddings[_x] = umap_transformed[:, 0]
-    embeddings[_y] = umap_transformed[:, 1]
+    print(umap_transformed.shape)
 
-    size = 2 if embeddings.shape[0] > 5000 else 5
+    # Create a DataFrame for UMAP result
+    umap_df = pd.DataFrame(umap_transformed, columns=['UMAP1', 'UMAP2'])
+
+    print(umap_df.shape)
+
+    embeddings['UMAP1'] = umap_df['UMAP1']
+    embeddings['UMAP2'] = umap_df['UMAP2']
+
+    print(embeddings.shape)
+    
+
+    size = 3 if embeddings.shape[0] > 5000 else 5
 
     fig_path_dict = {}
     for col in color_by_columns:
-        fig = px.scatter(embeddings, x=_x, y=_y, color=col, width=1000, height=800, opacity=0.7, title=col)
+        fig = px.scatter(embeddings, x='UMAP1', y='UMAP2', color=col, width=1000, height=800, opacity=0.7, title=col)
         fig.update_traces(marker=dict(size=size))
         fig.update_layout(legend_title_text=col)
         fig.write_image(os.path.join(save_dir, f"umap_colour_by_{col}.png"))

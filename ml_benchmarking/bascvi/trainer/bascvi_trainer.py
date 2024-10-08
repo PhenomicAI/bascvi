@@ -126,7 +126,7 @@ class BAScVITrainer(pl.LightningModule):
                 monitor=self.callbacks_args["early_stopping"]["monitor"],
                 min_delta=0.00,
                 verbose=True,
-                patience=self.callbacks_args["early_stopping"]["patience"]*2,
+                patience=self.callbacks_args["early_stopping"]["patience"],
                 mode=self.callbacks_args["early_stopping"]["mode"]
             )
             self.callbacks.append(self.early_stop_callback)
@@ -209,7 +209,14 @@ class BAScVITrainer(pl.LightningModule):
 
         z = qz_m
 
-        self.validation_step_outputs.append(torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1))
+
+        # Important: make z float64 dtype to concat properly with soma_joinid
+        z = z.double()
+
+        emb_output = torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1)
+
+
+        self.validation_step_outputs.append(emb_output)
         
         return g_losses
 
@@ -218,8 +225,8 @@ class BAScVITrainer(pl.LightningModule):
 
         if self.save_validation_umaps:
             logger.info("Running validation UMAP...")
-            embeddings = torch.cat(self.validation_step_outputs, dim=0).detach().cpu().numpy()
-            emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1])[:-1]] 
+            embeddings = torch.cat(self.validation_step_outputs, dim=0).double().detach().cpu().numpy()
+            emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 1)] 
             embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["soma_joinid"])
            
             save_dir = os.path.join(self.root_dir, "validation_umaps", str(self.valid_counter))
@@ -232,8 +239,9 @@ class BAScVITrainer(pl.LightningModule):
             if self.obs_df is None:
                 with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
                     self.obs_df = soma_experiment.obs.read(column_names=['soma_joinid'] + color_by_columns).concat().to_pandas()
-            embeddings_df = embeddings_df.set_index("soma_joinid").join(self.obs_df.set_index("soma_joinid"))
-
+            print(embeddings_df.shape, end=" ")
+            embeddings_df = embeddings_df.set_index("soma_joinid").join(self.obs_df.set_index("soma_joinid"), how="inner").reset_index()
+            print(embeddings_df.shape)
             embeddings_df, fig_path_dict = umap_calc_and_save_html(embeddings_df, emb_columns, save_dir, color_by_columns, max_cells=100000)
 
             for key, fig_path in fig_path_dict.items():

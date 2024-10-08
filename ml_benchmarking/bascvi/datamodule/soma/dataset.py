@@ -153,15 +153,26 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 try:
                     # read block
                     with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-                        # self.X_block = soma_experiment.ms["RNA"]["X"][self.X_array_name].read((tuple(self.soma_joinid_block), None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.soma_joinid_block, :]
+                        self.X_block = soma_experiment.ms["RNA"]["X"][self.X_array_name].read((tuple(self.soma_joinid_block), None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.soma_joinid_block, :]
 
-                        with soma_experiment.axis_query("RNA", obs_query=soma.AxisQuery(coords=(tuple(self.soma_joinid_block),))) as query:
-                            self.X_block = query.to_anndata(X_name=self.X_array_name, column_names={"obs":[], "var":[]}).X
+                        # with soma_experiment.axis_query("RNA", obs_query=soma.AxisQuery(coords=(tuple(self.soma_joinid_block),))) as query:
+                        #     self.X_block = query.to_anndata(X_name=self.X_array_name, column_names={"obs":[], "var":[]}).X
+                        # tiledb always returns in ascending order of soma_joinid
+                        # [2,6,7,10] -> we need in [6,2,10,7] order
+                        # arg_sort([6,2,10,7]) = [1,0,3,2]
+                        # [2,6,7,10][arg_sort([6,2,10,7])] = [6,2,10,7]
 
+                        # sorted_indices = np.argsort(self.soma_joinid_block)
+                        # self.X_block = self.X_block[sorted_indices, :]
+                        
                         self.X_block = self.X_block[:, self.genes_to_use]
+                        
 
-                except:
-                    raise ValueError("Error reading X array of block: ", self.curr_block)
+
+                except Exception as error:
+                    print("Error reading X array of block: ", self.curr_block)
+                    print(error)
+                    raise ValueError()
                 
             if self.verbose:    
                 print("subsetting, converting, and transposing x...")

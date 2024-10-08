@@ -400,7 +400,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.obs_df = self.obs_df.sample(frac=1, random_state=self.random_seed).reset_index(drop=True)
 
         # calculate num blocks
-        MIN_VAL_BLOCKS = 1
+        MIN_VAL_BLOCKS = 2
         if self.block_size > self.obs_df.shape[0] // 5:
             self.block_size = self.obs_df.shape[0] // 5
         self.num_total_blocks = math.ceil(self.obs_df.shape[0] / self.block_size) 
@@ -497,6 +497,11 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         for key, value in batch.items():
             batch[key] = value.to(device)
         return batch
+    
+def staggered_worker_init(worker_id):
+    """Custom worker init function to stagger the initialization."""
+    time.sleep(worker_id * 0)  # Sleep for some time depending on worker_id
+
 
 
 def log_mean(X):
@@ -510,6 +515,3 @@ def log_var(X):
     return local_var
 
 
-def staggered_worker_init(worker_id):
-    """Custom worker init function to stagger the initialization."""
-    time.sleep(worker_id * 0)  # Sleep for some time depending on worker_id
