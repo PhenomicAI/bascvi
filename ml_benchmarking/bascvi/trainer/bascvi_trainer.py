@@ -239,9 +239,7 @@ class BAScVITrainer(pl.LightningModule):
             if self.obs_df is None:
                 with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
                     self.obs_df = soma_experiment.obs.read(column_names=['soma_joinid'] + color_by_columns).concat().to_pandas()
-            print(embeddings_df.shape, end=" ")
             embeddings_df = embeddings_df.set_index("soma_joinid").join(self.obs_df.set_index("soma_joinid"), how="inner").reset_index()
-            print(embeddings_df.shape)
             embeddings_df, fig_path_dict = umap_calc_and_save_html(embeddings_df, emb_columns, save_dir, color_by_columns, max_cells=100000)
 
             for key, fig_path in fig_path_dict.items():

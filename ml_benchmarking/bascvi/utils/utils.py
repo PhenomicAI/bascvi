@@ -51,12 +51,10 @@ def umap_calc_and_save_html(
 
     umap_transformed = model.transform(embeddings[emb_columns])
 
-    print(umap_transformed.shape)
 
     # Create a DataFrame for UMAP result
     umap_df = pd.DataFrame(umap_transformed, columns=['UMAP1', 'UMAP2'])
 
-    print(umap_df.shape)
 
     embeddings['UMAP1'] = umap_df['UMAP1']
     embeddings['UMAP2'] = umap_df['UMAP2']
@@ -72,6 +70,7 @@ def umap_calc_and_save_html(
         fig.update_traces(marker=dict(size=size))
         fig.update_layout(legend_title_text=col)
         fig.write_image(os.path.join(save_dir, f"umap_colour_by_{col}.png"))
+        fig.write_html(os.path.join(save_dir, f"umap_colour_by_{col}.html"))
         fig_path_dict[col] = os.path.join(save_dir, f"umap_colour_by_{col}.png")
 
     return embeddings, fig_path_dict
