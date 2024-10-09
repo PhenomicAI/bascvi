@@ -316,12 +316,13 @@ class BAScVI(nn.Module):
             disc_loss_study = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0]:batch_vecs[0].shape[0] + batch_vecs[1].shape[0]], dim=1))
             disc_loss_sample = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0] + batch_vecs[1].shape[0]:], dim=1))
 
-            disc_loss_reduced = torch.mean(torch.mean(disc_loss, dim=1))
 
             reconst_loss = torch.mean(reconst_loss)
             weighted_kl_local = kl_loss_weight * (torch.mean(weighted_kl_local))
+            disc_loss_reduced = disc_warmup_weight * torch.mean(torch.mean(disc_loss, dim=1))
 
-            loss = reconst_loss + weighted_kl_local - disc_warmup_weight * disc_loss_reduced 
+
+            loss = reconst_loss + weighted_kl_local - disc_loss_reduced 
 
             return {"loss": loss, "rec_loss": reconst_loss.detach(), "kl_local": weighted_kl_local.detach(), "disc_loss": disc_loss_reduced.detach(), "disc_loss_modality": disc_loss_modality.detach(), "disc_loss_study": disc_loss_study.detach(), "disc_loss_sample": disc_loss_sample.detach()}
             
