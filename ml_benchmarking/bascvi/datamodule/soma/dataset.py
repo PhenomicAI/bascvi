@@ -153,20 +153,22 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 try:
                     # read block
                     with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-                        self.X_block = soma_experiment.ms["RNA"]["X"][self.X_array_name].read((tuple(self.soma_joinid_block), None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.soma_joinid_block, :]
+                        # OLD WAY
+                        # self.X_block = soma_experiment.ms["RNA"]["X"][self.X_array_name].read((tuple(self.soma_joinid_block), None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.soma_joinid_block, :]
+                        with soma_experiment.axis_query("RNA", obs_query=soma.AxisQuery(coords=(tuple(self.soma_joinid_block),))) as query:
+                            adata = query.to_anndata(X_name='row_raw', column_names={"obs":["soma_joinid"], "var":[]})
+                            adata.obs_names = adata.obs["soma_joinid"].astype(str)
 
-                        # with soma_experiment.axis_query("RNA", obs_query=soma.AxisQuery(coords=(tuple(self.soma_joinid_block),))) as query:
-                        #     self.X_block = query.to_anndata(X_name=self.X_array_name, column_names={"obs":[], "var":[]}).X
-                        # tiledb always returns in ascending order of soma_joinid
-                        # [2,6,7,10] -> we need in [6,2,10,7] order
-                        # arg_sort([6,2,10,7]) = [1,0,3,2]
-                        # [2,6,7,10][arg_sort([6,2,10,7])] = [6,2,10,7]
+                    # make soma_joinid_block a list of strings
+                    soma_joinid_block_str = [str(x) for x in self.soma_joinid_block]
+                    adata = adata[soma_joinid_block_str, :]
 
-                        # sorted_indices = np.argsort(self.soma_joinid_block)
-                        # self.X_block = self.X_block[sorted_indices, :]
-                        
-                        self.X_block = self.X_block[:, self.genes_to_use]
-                        
+                    assert np.all(adata.obs["soma_joinid"] == self.soma_joinid_block)
+
+                    self.X_block = adata.X
+                    
+                    self.X_block = self.X_block[:, self.genes_to_use]
+                    
 
 
                 except Exception as error:
