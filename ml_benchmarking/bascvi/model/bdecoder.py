@@ -29,7 +29,6 @@ class BDecoder(nn.Module):
         n_output: int,
         n_layers: int = 1,
         n_hidden: int = 128,
-        macrogene_dim = None,
     ):
         super().__init__()
         self.n_batch = n_batch
@@ -66,7 +65,7 @@ class BDecoder(nn.Module):
         )
         # mean gamma
         self.px_scale_decoder = nn.Sequential(
-            nn.Linear(n_hidden, n_output if macrogene_dim is None else macrogene_dim),
+            nn.Linear(n_hidden, n_output),
             nn.Softmax(dim=-1),
         )
        
@@ -78,7 +77,6 @@ class BDecoder(nn.Module):
         z: torch.Tensor,
         batch_emb: torch.Tensor,
         library: torch.Tensor=None,
-        macrogene_matrix: torch.Tensor=None,
     ):
         """
         The forward computation for a single sample.
@@ -106,10 +104,6 @@ class BDecoder(nn.Module):
             z = layer(z)
         px = z
         px_scale = self.px_scale_decoder(px)
-
-        if macrogene_matrix is not None:
-            px_scale = nn.functional.linear(px_scale.unsqueeze(0), macrogene_matrix)
-            px_scale = nn.Softmax(-1)(px_scale.squeeze())
 
         px_dropout = self.px_dropout_decoder(px)
         # Clamp to high value: exp(12) ~ 160000 to avoid nans (computational stability)

@@ -113,7 +113,6 @@ class BAScVI(nn.Module):
             n_output=n_input,
             n_layers=n_layers,
             n_hidden=n_hidden,
-            macrogene_dim=macrogene_matrix.shape[1] if macrogene_matrix is not None else None,
         )
         
         self.z_predictor = BPredictor(
@@ -173,11 +172,10 @@ class BAScVI(nn.Module):
         This is typically written as `p(x|z)`.
         """
         decoder_input = z
-        px_scale, px_rate, px_dropout,z_pred = self.decoder(
+        px_scale, px_rate, px_dropout, z_pred = self.decoder(
             decoder_input,
             batch_emb,
             library=library,
-            macrogene_matrix=self.macrogene_matrix,
         )
 
         px_r = self.px_r
