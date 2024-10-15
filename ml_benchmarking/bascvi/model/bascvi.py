@@ -303,21 +303,16 @@ class BAScVI(nn.Module):
             z_pred = generative_outputs["z_pred"]
             x_pred = inference_outputs["x_pred"]
 
-            batch_vec = torch.cat(batch_vecs, dim=1)
             
-            # batch adversarial cost z_pred is from the decoder, x_pred is from the encoder. we want to remove batch from both
-            # TODO: question: do we want to remove modality from decoder output? we might want to be able to translate between modalities
-            disc_loss = disc_loss_weight * (self.loss_bce(z_pred, batch_vec.float()) + self.loss_bce(x_pred, batch_vec.float()))
-
-            # ensure we give equal weight to each batch dimension (modality, study, sample)
-            disc_loss_modality = torch.mean(torch.mean(disc_loss[ : , :batch_vecs[0].shape[0]], dim=1))
-            disc_loss_study = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0]:batch_vecs[0].shape[0] + batch_vecs[1].shape[0]], dim=1))
-            disc_loss_sample = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0] + batch_vecs[1].shape[0]:], dim=1))
-
+            disc_loss_reduced, disc_loss_modality, disc_loss_study, disc_loss_sample = self.get_disc_loss(z_pred, x_pred, batch_vecs)
 
             reconst_loss = torch.mean(reconst_loss)
             weighted_kl_local = kl_loss_weight * (torch.mean(weighted_kl_local))
-            disc_loss_reduced = disc_warmup_weight * torch.mean(torch.mean(disc_loss, dim=1))
+            disc_loss_reduced = disc_warmup_weight * disc_loss_weight * disc_loss_reduced
+
+            disc_loss_modality = disc_warmup_weight * disc_loss_weight * disc_loss_modality
+            disc_loss_study = disc_warmup_weight * disc_loss_weight * disc_loss_study
+            disc_loss_sample = disc_warmup_weight * disc_loss_weight * disc_loss_sample
 
 
             loss = reconst_loss + weighted_kl_local - disc_loss_reduced 
@@ -326,21 +321,18 @@ class BAScVI(nn.Module):
             
         if optimizer_idx == 1:
 
-            batch_vec = torch.cat(batch_vecs, dim=1)
             
             z_pred = generative_outputs["z_pred"]
             x_pred = inference_outputs["x_pred"]
             
-            # batch adversarial cost z_pred is from the decoder, x_pred is from the encoder. we want to remove batch from both
-            # TODO: question: do we want to remove modality from decoder output? we might want to be able to translate between modalities
-            disc_loss = disc_loss_weight * (self.loss_bce(z_pred, batch_vec.float()) + self.loss_bce(x_pred, batch_vec.float()))
+            disc_loss_reduced, disc_loss_modality, disc_loss_study, disc_loss_sample = self.get_disc_loss(z_pred, x_pred, batch_vecs)
 
-            # ensure we give equal weight to each batch dimension (modality, study, sample)
-            disc_loss_modality = torch.mean(torch.mean(disc_loss[ : , :batch_vecs[0].shape[0]], dim=1))
-            disc_loss_study = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0]:batch_vecs[0].shape[0] + batch_vecs[1].shape[0]], dim=1))
-            disc_loss_sample = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0] + batch_vecs[1].shape[0]:], dim=1))
+            disc_loss_reduced = disc_warmup_weight * disc_loss_weight * disc_loss_reduced
 
-            disc_loss_reduced = torch.mean(torch.mean(disc_loss, dim=1))
+            disc_loss_modality = disc_warmup_weight * disc_loss_weight * disc_loss_modality
+            disc_loss_study = disc_warmup_weight * disc_loss_weight * disc_loss_study
+            disc_loss_sample = disc_warmup_weight * disc_loss_weight * disc_loss_sample
+
 
             return {"loss" : disc_loss_reduced, "rec_loss": 0, "kl_local": 0, "disc_loss": disc_loss_reduced.detach(), "disc_loss_modality": disc_loss_modality.detach(), "disc_loss_study": disc_loss_study.detach(), "disc_loss_sample": disc_loss_sample.detach()}
 
@@ -356,6 +348,25 @@ class BAScVI(nn.Module):
 
         reconst_loss = reconst_loss.sum(dim=-1)
         return reconst_loss
+    
+    def get_disc_loss(self, z_pred, x_pred, batch_vecs):
+        """Computes discriminator loss."""
+        batch_vec = torch.cat(batch_vecs, dim=1)
+        
+        # batch adversarial cost z_pred is from the decoder, x_pred is from the encoder. we want to remove batch from both
+        # TODO: question: do we want to remove modality from decoder output? we might want to be able to translate between modalities
+        disc_loss = (self.loss_bce(z_pred, batch_vec.float()) + self.loss_bce(x_pred, batch_vec.float()))
+
+        # ensure we give equal weight to each batch dimension (modality, study, sample)
+        disc_loss_modality = torch.mean(torch.mean(disc_loss[ : , :batch_vecs[0].shape[0]], dim=1))
+        disc_loss_study = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0]:batch_vecs[0].shape[0] + batch_vecs[1].shape[0]], dim=1))
+        disc_loss_sample = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0] + batch_vecs[1].shape[0]:], dim=1))
+
+        disc_loss_reduced = torch.mean(torch.mean(disc_loss, dim=1))
+
+        return disc_loss_reduced, disc_loss_modality, disc_loss_study, disc_loss_sample
+
+
         
 class BPredictor(nn.Module):
     def __init__(
