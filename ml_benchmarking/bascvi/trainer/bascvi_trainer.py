@@ -8,15 +8,17 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
-from bascvi.utils.utils import umap_calc_and_save_html
+from bascvi.utils.utils import umap_calc_and_save_html, calc_kni_score
 import os, shutil
 
 from bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 
 import wandb
-from bascvi.utils.protein_embeddings import get_stacked_protein_embeddings_matrix
+from bascvi.utils.protein_embeddings import get_stacked_protein_embeddings_matrix, get_centroid_distance_matrix
 
 from sklearn.preprocessing import StandardScaler
+
+
 
 
 
@@ -41,6 +43,8 @@ class BAScVITrainer(pl.LightningModule):
         n_input: int = None,
         n_batch: int = None,
         use_macrogenes: bool = False,
+        macrogene_method: str = "concat",
+        macrogene_embedding_model: str = "ESM2",
     ):
         super().__init__()
         # save hyperparameters in hparams.yaml file
@@ -73,6 +77,8 @@ class BAScVITrainer(pl.LightningModule):
         self.gene_list = gene_list
 
         self.use_macrogenes = use_macrogenes
+        self.macrogene_method = macrogene_method
+        self.macrogene_embedding_model = macrogene_embedding_model
 
         # neat way to dynamically import classes
         # __import__ method used to fetch module
@@ -82,12 +88,18 @@ class BAScVITrainer(pl.LightningModule):
         Vae = getattr(module, class_name)
 
         if self.use_macrogenes:
-            macrogene_matrix = get_stacked_protein_embeddings_matrix("/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/ESM2", gene_list=self.gene_list, species_list=['human', 'mouse'])
-            # scale macrogene matrix
-            # scaler = StandardScaler()
-            # macrogene_matrix = scaler.fit_transform(macrogene_matrix)
-            # normalize macrogene matrix dividing by sum of each row
-            macrogene_matrix = macrogene_matrix / macrogene_matrix.sum(axis=1, keepdims=True)
+            if self.macrogene_method == "concat_norm":
+                macrogene_matrix = get_stacked_protein_embeddings_matrix(f"/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=['human', 'mouse'])
+                # scale macrogene matrix
+                # scaler = StandardScaler()
+                # macrogene_matrix = scaler.fit_transform(macrogene_matrix)
+                # normalize macrogene matrix dividing by sum of each row
+                macrogene_matrix = macrogene_matrix / macrogene_matrix.sum(axis=1, keepdims=True)
+            elif self.macrogene_method == "concat":
+                macrogene_matrix = get_stacked_protein_embeddings_matrix(f"/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=['human', 'mouse'])
+            elif self.macrogene_method == "saturn":
+                macrogene_matrix = get_centroid_distance_matrix(f"/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/{self.macrogene_embedding_model}", species_list=['human', 'mouse'])
+
 
             model_args["macrogene_matrix"] = torch.from_numpy(macrogene_matrix).float()
 
@@ -232,24 +244,33 @@ class BAScVITrainer(pl.LightningModule):
             save_dir = os.path.join(self.root_dir, "validation_umaps", str(self.valid_counter))
             os.makedirs(save_dir, exist_ok=True)
 
-            color_by_columns = ["standard_true_celltype", "study_name"]
+            obs_columns = ["standard_true_celltype", "study_name", "sample_name"]
             if self.use_macrogenes:
-                color_by_columns.append("species")
+                obs_columns.append("species")
 
             if self.obs_df is None:
                 with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-                    self.obs_df = soma_experiment.obs.read(column_names=['soma_joinid'] + color_by_columns).concat().to_pandas()
-            embeddings_df = embeddings_df.set_index("soma_joinid").join(self.obs_df.set_index("soma_joinid"), how="inner").reset_index()
-            embeddings_df, fig_path_dict = umap_calc_and_save_html(embeddings_df, emb_columns, save_dir, color_by_columns, max_cells=100000)
+                    self.obs_df = soma_experiment.obs.read(column_names=['soma_joinid'] + obs_columns).concat().to_pandas()
+                    self.obs_df = self.obs_df.set_index("soma_joinid")
+            
+            _, fig_path_dict = umap_calc_and_save_html(embeddings_df.set_index("soma_joinid").join(self.obs_df, how="inner").reset_index(), emb_columns, save_dir, obs_columns, max_cells=100000)
 
             for key, fig_path in fig_path_dict.items():
                 metrics_to_log[key] = wandb.Image(fig_path, caption=key)
+
+            # run kni
+            kni_dict = calc_kni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="sample_name")
+            # add "val_" prefix to keys
+            kni_dict = {f"val_{k}": v for k, v in kni_dict.items()}
+            metrics_to_log.update(kni_dict)
             
             self.valid_counter += 1
 
             self.validation_step_outputs.clear()
         else:
             pass
+
+
 
         wandb.log(metrics_to_log)
 
