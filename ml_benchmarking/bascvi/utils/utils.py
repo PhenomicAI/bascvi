@@ -11,11 +11,36 @@ from typing import List
 from sklearn.neighbors import KNeighborsClassifier
 
 
+import faiss
 
-from sklearn.neighbors import KNeighborsClassifier
-import numpy as np
-from sklearn.neighbors import KNeighborsClassifier
-import numpy as np
+
+class FaissRadiusNeighbors:
+    def __init__(self, r=1.0):
+        self.r = r
+
+    def fit(self, X, y):
+        if X.shape[0] < 1000:
+            self.index = faiss.IndexFlatL2(X.shape[1])
+        elif X.shape[0] < 10000:
+            self.index = faiss.index_factory(X.shape[1], f"IVF20,Flat")
+        elif X.shape[0] < 100000:
+            self.index = faiss.index_factory(X.shape[1], f"IVF200,Flat")
+        else:
+            self.index = faiss.index_factory(X.shape[1], f"IVF1000,Flat")
+
+        self.index.train(X.astype(np.float32))
+        self.index.add(X.astype(np.float32))
+    
+    def radius_neighbors(self, X):
+        results = self.index.range_search(X,thresh=self.r)
+        vals = []
+
+        for ii in range(1,results[0].shape[0]):
+            inds = results[2][results[0][ii-1]:results[0][ii]]
+            vals.append(inds[1:])
+            
+        return vals
+
 
 def calc_kni_score(
           embeddings_df: pd.DataFrame, 
@@ -23,7 +48,7 @@ def calc_kni_score(
           cell_type_col: str = "standard_true_celltype", 
           batch_col: str = "study_name",
           n_neighbours: int = 50,
-          diversity_cutoff: float = 0.1
+          max_prop_same_batch: float = 0.8
           ) -> float:
     """Calculates KNI score for embeddings
 
@@ -37,12 +62,22 @@ def calc_kni_score(
         column to use as cell type
     batch_col: str
         column to use as batch
+    max_prop_same_batch: float
+        proportion of same batch in neighbourhood to consider as diverse neighbourhood
 
     Returns
     -------
     kni_score: float
         KNI score
     """
+    # Reset index
+    embeddings_df = embeddings_df.reset_index(drop=True)
+    obs_df = obs_df.reset_index(drop=True)
+
+    # Subset to not "Unknown" cell types
+    embeddings_df = embeddings_df[obs_df[cell_type_col] != "Unknown"]
+    obs_df = obs_df[obs_df[cell_type_col] != "Unknown"]
+
     # scale embeddings using quantile normalization
     for col in embeddings_df.columns:
         embeddings_df[col] = embeddings_df[col] - embeddings_df[col].mean()
@@ -75,7 +110,7 @@ def calc_kni_score(
     kni = {b: 0 for b in batch_cat.unique()}
 
 
-    diverse_neighbourhood_mask = num_same_batch < diversity_cutoff * n_neighbours
+    diverse_neighbourhood_mask = num_same_batch < max_prop_same_batch * n_neighbours
 
     for i in range(embeddings_df.shape[0]):
         predicted_ct_by_all_neighbour = np.argmax(np.bincount(knn_ct[i,:]))
@@ -96,9 +131,78 @@ def calc_kni_score(
         acc_total += acc[b]
     
 
-    return {'acc': acc_total / embeddings_df.shape[0], 'kni': kni_total / embeddings_df.shape[0], 'pct_same_batch_in_neighbourhood': np.mean(num_same_batch) / n_neighbours}
+    return {'knn_acc': acc_total / embeddings_df.shape[0], 'kni': kni_total / embeddings_df.shape[0], 'pct_same_batch_in_knn': np.mean(num_same_batch) / n_neighbours}
 
-   
+def calc_rbni_score(
+    embeddings_df: pd.DataFrame,
+    obs_df: pd.DataFrame,
+    cell_type_col: str = "standard_true_celltype",
+    batch_col: str = "study_name",
+    radius: float = 1.0,
+    max_prop_same_batch: float = 0.8
+):
+    # Reset index
+    embeddings_df = embeddings_df.reset_index(drop=True)
+    obs_df = obs_df.reset_index(drop=True)
+
+    # Subset to not "Unknown" cell types
+    embeddings_df = embeddings_df[obs_df[cell_type_col] != "Unknown"]
+    obs_df = obs_df[obs_df[cell_type_col] != "Unknown"]
+
+    # scale embeddings using quantile normalization
+    for col in embeddings_df.columns:
+        embeddings_df[col] = embeddings_df[col] - embeddings_df[col].mean()
+        (q1, q2) = embeddings_df[col].quantile([0.25, 0.75])
+        embeddings_df[col] = embeddings_df[col] / (q2 - q1)
+
+    # get categories
+    cell_type_cat = np.asarray(obs_df[cell_type_col].astype('category').cat.codes, dtype=int) - obs_df[cell_type_col].astype('category').cat.codes.min()
+    batch_cat = obs_df[batch_col].astype('category').cat.codes
+
+    # fit classifier
+    classifier = FaissRadiusNeighbors(r=radius)
+    classifier.fit(embeddings_df.values, cell_type_cat)
+
+    # get radius neighbors
+    vals = classifier.radius_neighbors(embeddings_df.values)
+
+
+    # calculate rbni score
+    acc = {b: 0 for b in batch_cat.unique()}
+    batch_counts = {b: 0 for b in batch_cat.unique()}
+    rbni = {b: 0 for b in batch_cat.unique()}
+
+    global_prop_same_batch = 0.0
+
+    for i in range(embeddings_df.shape[0]):
+        neighbour_inds = vals[i]
+        if len(neighbour_inds) == 0:
+            continue
+        predicted_ct_by_all_neighbour = np.argmax(np.bincount(cell_type_cat[neighbour_inds]))
+        if predicted_ct_by_all_neighbour == cell_type_cat[i]:
+                acc[batch_cat.iloc[i]] += 1
+
+        different_batch_mask = batch_cat.iloc[neighbour_inds] != batch_cat.iloc[i]
+        prop_same_batch = (len(neighbour_inds) - np.sum(different_batch_mask)) / len(neighbour_inds)
+            
+        if prop_same_batch < max_prop_same_batch:
+            predicted_ct_by_nonbatch_neighbour = np.argmax(np.bincount(cell_type_cat[neighbour_inds[different_batch_mask]]))
+            batch_counts[batch_cat.iloc[i]] +=1
+            if predicted_ct_by_nonbatch_neighbour == cell_type_cat[i]:
+                rbni[batch_cat.iloc[i]] +=1       
+
+        global_prop_same_batch += prop_same_batch 
+        
+    rbni_total = 0.0
+    acc_total = 0.0
+    for b in batch_cat.unique():
+        rbni_total += rbni[b]
+        acc_total += acc[b]
+
+
+    return {'radius_acc': acc_total / embeddings_df.shape[0], 'rbni': rbni_total / embeddings_df.shape[0], 'pct_same_batch_in_radius': global_prop_same_batch / embeddings_df.shape[0]}
+
+
 def umap_calc_and_save_html(
     embeddings: pd.DataFrame,
     emb_columns: List,
