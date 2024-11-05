@@ -15,6 +15,8 @@ from tqdm import tqdm
 
 from pathlib import Path
 
+from bascvi.utils.utils import calc_kni_score
+
 warnings.filterwarnings("ignore")
 
 
@@ -24,7 +26,7 @@ warnings.filterwarnings("ignore")
 
 
 
-def run_kni_on_folder(root_dir: str, cell_type_col: str = "standard_true_celltype"):
+def run_kni_on_folder(root_dir: str, cell_type_col: str = "standard_true_celltype", batch_col: str = "study_name", max_prop_same_batch: float = 0.8):
 
     run_names = []
     pred_paths = []
@@ -55,111 +57,113 @@ def run_kni_on_folder(root_dir: str, cell_type_col: str = "standard_true_celltyp
     print("Run names:", run_names)
     print("Pred paths:", pred_paths)
 
-    # Set up for KNI
-    df_embeddings = pd.read_csv(pred_paths[0], delimiter='\t')
+    for emb_path in pred_paths:
+        emb_df = pd.read_csv(emb_path, delimiter='\t')
 
-    cell_types = np.asarray(df_embeddings[cell_type_col].astype('category').cat.codes,dtype=int)
+        print(calc_kni_score(emb_df[cols], emb_df, batch_col=batch_col, max_prop_same_batch=max_prop_same_batch))
 
-    cat = df_embeddings['study_name'].astype('category')
-    mapping = cat.cat.categories
-    study_name = cat.cat.codes
-    studies = list(range(len(mapping)))
+    # cell_types = np.asarray(df_embeddings[cell_type_col].astype('category').cat.codes,dtype=int)
 
-    results = pd.DataFrame(np.zeros((len(studies), run_names.shape[0])), index=studies, columns=run_names)
+    # cat = df_embeddings[batch_col].astype('category')
+    # mapping = cat.cat.categories
+    # study_name = cat.cat.codes
+    # studies = list(range(len(mapping)))
 
-    print("Starting Loop")
+    # results = pd.DataFrame(np.zeros((len(studies), run_names.shape[0])), index=studies, columns=run_names)
+
+    # print("Starting Loop")
 
 
-    # KNI loop
-    for ii,fname in enumerate(tqdm(pred_paths)):
+    # # KNI loop
+    # for ii,fname in enumerate(tqdm(pred_paths)):
 
-        df_embeddings = pd.read_csv(fname,delimiter='\t') # scVI / BAscVI / Harmony / Scanorama
-        print(" - loaded embeddings")
+    #     df_embeddings = pd.read_csv(fname,delimiter='\t') # scVI / BAscVI / Harmony / Scanorama
+    #     print(" - loaded embeddings")
 
-        for i in range(dims[ii]):
-            df_embeddings[cols[i]] = df_embeddings[cols[i]] - np.mean(df_embeddings[cols[i]])
-            (q1,q2) = np.quantile(df_embeddings[cols[i]],[0.25,0.75])
-            df_embeddings[cols[i]] = df_embeddings[cols[i]]/(q2-q1)
+    #     for i in range(dims[ii]):
+    #         df_embeddings[cols[i]] = df_embeddings[cols[i]] - np.mean(df_embeddings[cols[i]])
+    #         (q1,q2) = np.quantile(df_embeddings[cols[i]],[0.25,0.75])
+    #         df_embeddings[cols[i]] = df_embeddings[cols[i]]/(q2-q1)
         
-        print(" - normalized")
+    #     print(" - normalized")
 
         
-        cell_types = np.asarray(df_embeddings[cell_type_col].astype('category').cat.codes,dtype=int) - df_embeddings[cell_type_col].astype('category').cat.codes.min()
-        cat = df_embeddings['study_name'].astype('category')
-        mapping = cat.cat.categories
-        study_name = cat.cat.codes
+    #     cell_types = np.asarray(df_embeddings[cell_type_col].astype('category').cat.codes,dtype=int) - df_embeddings[cell_type_col].astype('category').cat.codes.min()
+    #     cat = df_embeddings['study_name'].astype('category')
+    #     mapping = cat.cat.categories
+    #     study_name = cat.cat.codes
 
 
-        classifier = KNeighborsClassifier(n_neighbors=50) # 25 used for csv file
+    #     classifier = KNeighborsClassifier(n_neighbors=50) # 25 used for csv file
 
-        classifier.fit(df_embeddings[cols[:dims[ii]]], cell_types)
-        print(" - classifier fit")
+    #     classifier.fit(df_embeddings[cols[:dims[ii]]], cell_types)
+    #     print(" - classifier fit")
 
-        vals = classifier.kneighbors(n_neighbors=50)
+    #     vals = classifier.kneighbors(n_neighbors=50)
 
-        knn_ct = cell_types[vals[1].flatten()].reshape(vals[1].shape)
-        knn_exp = study_name.iloc[vals[1].flatten()].values.reshape(vals[1].shape)
+    #     knn_ct = cell_types[vals[1].flatten()].reshape(vals[1].shape)
+    #     knn_exp = study_name.iloc[vals[1].flatten()].values.reshape(vals[1].shape)
         
-        exp_mat = np.repeat(np.expand_dims(study_name,1),knn_exp.shape[1],axis=1)
+    #     exp_mat = np.repeat(np.expand_dims(study_name,1),knn_exp.shape[1],axis=1)
         
-        self_mask = knn_exp != exp_mat
-        cutoff = np.sum(np.logical_not(self_mask),axis=1)
+    #     self_mask = knn_exp != exp_mat
+    #     cutoff = np.sum(np.logical_not(self_mask),axis=1)
 
-        acc = {study:0 for study in studies}
-        batch = {study:0 for study in studies}
-        kni = {study:0 for study in studies}
+    #     acc = {study:0 for study in studies}
+    #     batch = {study:0 for study in studies}
+    #     kni = {study:0 for study in studies}
 
-        mask_1 = cutoff < 40
+    #     mask_1 = cutoff < 40
 
-        for i in tqdm(range(df_embeddings.shape[0])):
-            if mask_1[i]:
-                acc[study_name[i]]
-                pred = np.argmax(np.bincount(knn_ct[i,:][self_mask[i,:]]))
-                batch[study_name[i]] +=1
-                if pred == cell_types[i]:
-                    kni[study_name[i]] +=1
+    #     for i in tqdm(range(df_embeddings.shape[0])):
+    #         if mask_1[i]:
+    #             acc[study_name[i]]
+    #             pred = np.argmax(np.bincount(knn_ct[i,:][self_mask[i,:]]))
+    #             batch[study_name[i]] +=1
+    #             if pred == cell_types[i]:
+    #                 kni[study_name[i]] +=1
         
-        print(fname)
-        total = 0
-        for study in studies:
-            print(mapping[study], '\t', kni[study])
+    #     print(fname)
+    #     total = 0
+    #     for study in studies:
+    #         # print(mapping[study], '\t', kni[study])
             
-            results[run_names[ii]].loc[study] = kni[study]
-            total += kni[study]
-        print("Total:  ", total, " Cell N:  ", df_embeddings.shape[0]," % Acc: " , total/df_embeddings.shape[0])
-        print()
+    #         results[run_names[ii]].loc[study] = kni[study]
+    #         total += kni[study]
+    #     print("Total:  ", total, " Cell N:  ", df_embeddings.shape[0]," % Acc: " , total/df_embeddings.shape[0])
+    #     print()
         
-        # Break down into accuracy vs. batch / kbet
+        # # Break down into accuracy vs. batch / kbet
 
-        print("Batch breadkdown:")
-        print()
+        # print("Batch breadkdown:")
+        # print()
         
-        for study in studies:
-            print(mapping[study], '\t', batch[study])
+        # for study in studies:
+        #     print(mapping[study], '\t', batch[study])
         
-        print()
-        print("Accuracy breadkdown:")
-        print()
+        # print()
+        # print("Accuracy breadkdown:")
+        # print()
         
-        for study in studies:
+        # for study in studies:
             
-            classifier = KNeighborsClassifier(n_neighbors=10) # 25 used for csv file
+        #     classifier = KNeighborsClassifier(n_neighbors=10) # 25 used for csv file
             
-            study_mask = mapping[study] == df_embeddings['study_name']
+        #     study_mask = mapping[study] == df_embeddings['study_name']
             
-            classifier.fit(df_embeddings[cols[:dims[ii]]].values[np.logical_not(study_mask),:], 
-                        cell_types[np.logical_not(study_mask)])
+        #     classifier.fit(df_embeddings[cols[:dims[ii]]].values[np.logical_not(study_mask),:], 
+        #                 cell_types[np.logical_not(study_mask)])
             
-            pred = classifier.predict(df_embeddings[cols[:dims[ii]]].values[study_mask,:])
-            acc[study] = np.sum(pred == cell_types[study_mask])
+        #     pred = classifier.predict(df_embeddings[cols[:dims[ii]]].values[study_mask,:])
+        #     acc[study] = np.sum(pred == cell_types[study_mask])
             
-            print(mapping[study],'\t',acc[study])
+        #     print(mapping[study],'\t',acc[study])
             
-        print()
+        # print()
 
-    results.to_csv(os.path.join(root_dir, "kni_results.csv"))
+    # results.to_csv(os.path.join(root_dir, "kni_results.csv"))
 
-    return results
+    # return results
 
     
 
@@ -170,10 +174,23 @@ if __name__ == "__main__":
         "--root_dir",
         type=str,
     )
+    parser.add_argument(
+        "-b",
+        "--batch_col",
+        type=str,
+        default="study_name"
+    )
+
+    parser.add_argument(
+        "-p",
+        "--max_prop_same_batch",
+        type=float,
+        default=0.8
+    )
     args = parser.parse_args()
 
-    print(f"Evaluating predictions from: {args.root_dir}")
+    print(f"Evaluating predictions from: {args.root_dir} with batch column: {args.batch_col} and max_prop_same_batch cutoff: {args.max_prop_same_batch}")
 
-    results = run_kni_on_folder(args.root_dir)
+    results = run_kni_on_folder(args.root_dir, batch_col=args.batch_col, max_prop_same_batch=args.max_prop_same_batch)
 
     

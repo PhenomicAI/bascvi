@@ -131,6 +131,9 @@ def train(config: Dict):
     
     # embeddings_df, fig_save_dict = umap_calc_and_save_html(embeddings_df, emb_columns, trainer.default_root_dir)
 
-    save_path = os.path.join(os.path.dirname(config["run_save_dir"]), "pred_embeddings_" + os.path.splitext(os.path.basename(trainer.checkpoint_callback.best_model_path))[0] + ".tsv")
+    save_path = os.path.join(config["run_save_dir"], "pred_embeddings_" + os.path.splitext(os.path.basename(trainer.checkpoint_callback.best_model_path))[0] + ".tsv")
     embeddings_df.to_csv(save_path, sep="\t")
     logger.info(f"Saved predicted embeddings to: {save_path}")
+
+    # end the wandb run
+    wandb.finish()
