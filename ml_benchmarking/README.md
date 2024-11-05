@@ -6,7 +6,7 @@ This repository provides everything you need to benchmark the performance of you
 
 This package is built with [PyTorch](https://pytorch.org/) and leverages [PyTorch Lightning](https://www.pytorchlightning.ai/) to simplify the training and evaluation process. Familiarity with these libraries is recommended to fully understand and extend the benchmarking capabilities offered here.
 
-The datasets used in our benchmarks are available for download at [TODO]().
+The datasets used in our benchmarks are available for download from S3 bucket: s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/
 
 ## Installation
 
