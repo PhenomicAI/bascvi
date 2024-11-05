@@ -309,7 +309,9 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.genes_to_use = list(set(self.genes_to_use).difference(genes_to_exclude))
 
         if self.pretrained_gene_list:
-            self.pretrained_gene_ids = self.var_df[self.var_df["gene"].isin(self.pretrained_gene_list)].soma_joinid.values.tolist()
+            self.pretrained_gene_list = [g.lower() for g in self.pretrained_gene_list]
+            self.pretrained_gene_ids = self.var_df[self.var_df["gene"].str.lower().isin(self.pretrained_gene_list)].soma_joinid.values.tolist()
+
             self.genes_to_use = list(set(self.pretrained_gene_ids).intersection(set(self.genes_to_use)))
             print(f"Using pretrained gene list found {100 * len(self.genes_to_use) / len(self.pretrained_gene_list)}% overlap")
 
@@ -317,11 +319,13 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.var_df_sub = self.var_df[self.var_df["soma_joinid"].isin(self.genes_to_use)]
             self.var_df_sub = self.var_df_sub.sort_values("gene")
 
-            self.soma_gene_name_list = self.var_df_sub["gene"].values.tolist()
+            self.soma_gene_name_list = self.var_df_sub["gene"].str.lower().values.tolist()
             self.genes_to_use = self.var_df_sub["soma_joinid"].values.tolist()
 
             # get indices of genes in pretrained_gene_list in order of soma_gene_name_list
             self.pretrained_gene_indices = [self.pretrained_gene_list.index(gene) for gene in self.soma_gene_name_list]
+
+            # TODO: need to get gene_list with names (maybe, maybe not, could be in model)
 
             self.num_genes = len(self.pretrained_gene_list)
 
@@ -384,14 +388,13 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
                 self.library_calcs = soma_experiment.ms["RNA"]["sample_library_calcs"].read().concat().to_pandas()
                 self.library_calcs = self.library_calcs.set_index("sample_idx")
+            # filter nnz
+            if "nnz" in self.obs_df.columns:
+                self.obs_df = self.obs_df[self.obs_df["nnz"] > 300] 
         except:
             self.filter_and_generate_library_calcs(iterative = (self.obs_df.shape[0] > 500000))
             self.obs_df = self.obs_df[self.obs_df["soma_joinid"].isin(self.filter_pass_soma_ids)]
 
-        # filter nnz
-        if not self.calc_library:
-            self.obs_df = self.obs_df[self.obs_df["nnz"] > 300] 
-                
         # define cell_idx as range
         self.obs_df['cell_idx'] = range(self.obs_df.shape[0])
 
