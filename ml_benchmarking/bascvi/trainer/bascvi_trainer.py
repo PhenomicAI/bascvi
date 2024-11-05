@@ -8,7 +8,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
-from bascvi.utils.utils import umap_calc_and_save_html, calc_kni_score
+from bascvi.utils.utils import umap_calc_and_save_html, calc_kni_score, calc_rbni_score
 import os, shutil
 
 from bascvi.datamodule.soma.soma_helpers import open_soma_experiment
@@ -17,6 +17,8 @@ import wandb
 from bascvi.utils.protein_embeddings import get_stacked_protein_embeddings_matrix, get_centroid_distance_matrix
 
 from sklearn.preprocessing import StandardScaler
+
+import numpy as np
 
 
 
@@ -95,10 +97,19 @@ class BAScVITrainer(pl.LightningModule):
                 # macrogene_matrix = scaler.fit_transform(macrogene_matrix)
                 # normalize macrogene matrix dividing by sum of each row
                 macrogene_matrix = macrogene_matrix / macrogene_matrix.sum(axis=1, keepdims=True)
+            
             elif self.macrogene_method == "concat":
                 macrogene_matrix = get_stacked_protein_embeddings_matrix(f"/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=['human', 'mouse'])
+            
             elif self.macrogene_method == "saturn":
-                macrogene_matrix = get_centroid_distance_matrix(f"/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/{self.macrogene_embedding_model}", species_list=['human', 'mouse'])
+                if os.path.isfile("/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/ESM2/2k_centroid_distance_matrix.npy"):
+                    macrogene_matrix = np.load("/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/ESM2/2k_centroid_distance_matrix.npy")
+                else:
+                    macrogene_matrix = get_centroid_distance_matrix(f"/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=['human', 'mouse'])
+            
+            elif self.macrogene_method == "ortholog":
+                macrogene_matrix = np.load("/home/ubuntu/paper_repo/bascvi/data/ortho_gene_matrix.npy")
+
 
 
             model_args["macrogene_matrix"] = torch.from_numpy(macrogene_matrix).float()
@@ -187,6 +198,10 @@ class BAScVITrainer(pl.LightningModule):
             self.manual_backward(g_losses['loss'])
             g_opt.step()
 
+            # add train to log_dict and log
+            g_losses = {f"train_{k}": v for k, v in g_losses.items()}
+            self.log_dict(g_losses)
+
             d_opt.zero_grad()
             _, _, d_losses = self.forward(batch, kl_weight=self.kl_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=1)
             self.manual_backward(d_losses['loss'])
@@ -204,9 +219,9 @@ class BAScVITrainer(pl.LightningModule):
             self.manual_backward(g_losses['loss'])
             g_opt.step()
 
-        # add train to log_dict and log
-        g_losses = {f"train_{k}": v for k, v in g_losses.items()}
-        self.log_dict(g_losses, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            # add train to log_dict and log
+            g_losses = {f"train_{k}": v for k, v in g_losses.items()}
+            self.log_dict(g_losses)
 
         return g_losses
 
@@ -214,7 +229,7 @@ class BAScVITrainer(pl.LightningModule):
         encoder_outputs, _, g_losses = self.forward(batch, kl_weight=self.kl_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
         
         g_losses = {f"val_{k}": v for k, v in g_losses.items()}
-        self.log_dict(g_losses, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log_dict(g_losses)
 
         qz_m = encoder_outputs["qz_m"]
         z = encoder_outputs["z"]
@@ -253,16 +268,23 @@ class BAScVITrainer(pl.LightningModule):
                     self.obs_df = soma_experiment.obs.read(column_names=['soma_joinid'] + obs_columns).concat().to_pandas()
                     self.obs_df = self.obs_df.set_index("soma_joinid")
             
+            if "species" not in self.obs_df.columns:
+                print("Adding species column to obs, assuming human data")
+                self.obs_df["species"] = "human"
+            
             _, fig_path_dict = umap_calc_and_save_html(embeddings_df.set_index("soma_joinid").join(self.obs_df, how="inner").reset_index(), emb_columns, save_dir, obs_columns, max_cells=100000)
 
             for key, fig_path in fig_path_dict.items():
                 metrics_to_log[key] = wandb.Image(fig_path, caption=key)
 
-            # run kni
-            kni_dict = calc_kni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="sample_name")
+            # run metrics
+            metrics_dict = {}
+            metrics_dict.update(calc_kni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="study_name", n_neighbours=15, max_prop_same_batch=0.8))
+            metrics_dict.update(calc_rbni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="study_name", radius=1.0, max_prop_same_batch=0.8))
+
             # add "val_" prefix to keys
-            kni_dict = {f"val_{k}": v for k, v in kni_dict.items()}
-            metrics_to_log.update(kni_dict)
+            metrics_dict = {f"val_{k}": v for k, v in metrics_dict.items()}
+            metrics_to_log.update(metrics_dict)
             
             self.valid_counter += 1
 
@@ -270,9 +292,10 @@ class BAScVITrainer(pl.LightningModule):
         else:
             pass
 
-
+        metrics_to_log["trainer/global_step"] = self.global_step
 
         wandb.log(metrics_to_log)
+
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
