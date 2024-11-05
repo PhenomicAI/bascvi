@@ -1,0 +1,65 @@
+{
+    "mode": "train",
+    
+    "datamodule": {
+        "class_name": "TileDBSomaIterDataModule",
+        "options": {
+            "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/combined_scref_no_ortho/",
+            "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/human_mouse_train_medium_bal.pkl",
+            "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/human_mouse_genes_to_use_macrogenes.txt",
+            "block_size": 40000,
+            "random_seed": 42,
+            "dataloader_args": {
+                "batch_size": 64,
+                "num_workers": 4,
+                "pin_memory": true
+            }
+        }
+    },
+    "emb_trainer": {
+        "module_name": "bascvi",
+        "class_name": "BAScVI",
+        "use_macrogenes": true,
+        "model_args": {
+            "n_hidden": 256,
+            "n_latent": 10,
+            "n_layers": 2,
+            "scaling_factor": 1.0,
+            "init_weights": true,
+            "use_library": true,
+            "use_batch_encoder": true
+        },
+        "training_args": {
+            "n_steps_discriminator_warmup": 5000,
+            "disc_loss_weight": 100000.0,
+            "kl_loss_weight": 1.0,
+            "lr_scheduler_metric": "train_loss",
+            "save_validation_umaps": true,
+            "optimizer": {
+                "lr": 0.001,
+                "weight_decay": 1e-6,
+                "eps": 0.01
+            },
+            "step_lr_scheduler": {
+                "step_size": 10,
+                "gamma": 0.1
+            },
+            "train_library": true,
+            "train_adversarial": true
+        },
+        "callbacks_args": {
+            "model_checkpoint": {
+                "monitor": "val_loss",
+                "mode": "min"
+            },
+            "early_stopping": {
+                "monitor": "val_loss",
+                "patience": 10,
+                "mode": "min"
+            }
+        }
+    },
+    "pl_trainer": {
+        "check_val_every_n_epoch": 2
+    }
+}

@@ -1,16 +1,16 @@
 {
     "mode": "predict",
 
-    "pretrained_model_path": "/home/ubuntu/paper_repo/bascvi/checkpoints/human_bascvi_epoch_123.ckpt",
+    "pretrained_model_path": "/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/scref_mu_macrogene_sweeps/only_scref/mg_methods/datamodule_{'options': {'genes_to_use_path': '/home/ubuntu/paper_repo/bascvi/data/human_mouse_genes_to_use_macrogenes.txt'}}_emb_trainer_{'macrogene_method': 'concat'}/bascvi/v4y9csgr/checkpoints/scvi-vae-epoch=67-elbo_val=0.00.ckpt",
 
-    "run_save_dir": "./runs/paper/bascvi_human_predict/",
+    "run_save_dir": "./runs/paper/bascvi_human_scref_mg_predict/",
     
     "datamodule": {
         "class_name": "TileDBSomaIterDataModule",
         "options": {
-            "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/",
-            "block_size": 10000,
-            "calc_library": false,
+            "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/combined_scref_no_ortho/",
+            "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/scref_train_barcodes.pkl",
+            "block_size": 40000,
             "dataloader_args": {
                 "batch_size": 64,
                 "num_workers": 4,
