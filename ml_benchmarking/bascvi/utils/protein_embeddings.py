@@ -3,6 +3,7 @@ import numpy as np
 import os
 import torch
 from sklearn.cluster import KMeans
+
 from scipy.stats import rankdata
 
 
@@ -46,11 +47,18 @@ def get_centroid_distance_matrix(protein_embeddings_dir, species_list, gene_list
         protein_embeddings_matrix = protein_embeddings_matrix / np.sum(protein_embeddings_matrix, axis=1, keepdims=True)
 
     # run kmeans
-    kmeans_model = KMeans(n_clusters=num_clusters, random_state=seed).fit(protein_embeddings_matrix)
-    
+    kmeans_model = KMeans(n_clusters=num_clusters, random_state=seed, verbose=1)
+
+    # fit kmeans model
+    print("Fitting KMeans model...")
+    kmeans_model = kmeans_model.fit(protein_embeddings_matrix)
+
     # get distance from each gene to each cluster centroid
+    print("Transforming protein embeddings...")
     distance_matrix = kmeans_model.transform(protein_embeddings_matrix)
     
+    # get scores for each gene
+    print("Getting scores...")
     if score_function == "default":
         return default_centroids_scores(distance_matrix)
     elif score_function == "one_hot":
