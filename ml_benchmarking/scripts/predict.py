@@ -36,9 +36,12 @@ def predict(config: Dict):
             pretrained_gene_list = [gene.strip('"') for gene in pretrained_gene_list]
     else:
         pretrained_gene_list = checkpoint['hyper_parameters']['gene_list']
+   
     n_input = checkpoint['state_dict']['vae.px_r'].shape[0]
     assert n_input == len(pretrained_gene_list), f"Number of genes in the model {n_input} does not match the gene list length {len(pretrained_gene_list)}"
-    n_batch = checkpoint['state_dict']['vae.z_encoder.encoder.Layer_0.0.weight'].shape[1] - n_input
+
+    n_batch = checkpoint['state_dict']['vae.z_predictor.predictor.3.weight'].shape[0]
+    
     model = EmbeddingTrainer.load_from_checkpoint(config["pretrained_model_path"], root_dir=config["run_save_dir"], n_input=n_input, n_batch=n_batch, gene_list=pretrained_gene_list)
 
 
