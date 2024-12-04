@@ -54,6 +54,7 @@ class BAScVI(nn.Module):
         use_batch_encoder = True,
         use_zinb = True,
         macrogene_matrix = None,
+        macrogene_hidden_dim = None
     ):
         super().__init__()
 
@@ -74,20 +75,29 @@ class BAScVI(nn.Module):
 
         self.px_r = torch.nn.Parameter(torch.randn(n_input))
 
-        MG_DIM = None
+        self.macrogene_hidden_dim = macrogene_hidden_dim
 
         if macrogene_matrix is not None:
-            MG_DIM = 512
-            self.macrogene_matrix_transform = torch.nn.Linear(macrogene_matrix.shape[1], MG_DIM)
+            if self.macrogene_hidden_dim is not None:
+                self.macrogene_matrix_transform = torch.nn.Linear(macrogene_matrix.shape[1], self.macrogene_hidden_dim)
+            
             self.macrogene_matrix = torch.nn.Parameter(macrogene_matrix, requires_grad=False)
             # freeze the macrogene matrix
             assert self.macrogene_matrix.requires_grad == False
-            print("Using macrogene matrix:", self.macrogene_matrix.shape)
+            print("Using macrogene matrix:", self.macrogene_matrix.shape, "hidden dim:", self.macrogene_hidden_dim)
+        else:
+            print("Not using macrogene matrix")
+            self.macrogene_matrix = None
 
 
         # z encoder goes from the n_input-dimensional data to an n_latent-d
         # latent space representation
-        n_input_encoder = n_input if MG_DIM is None else MG_DIM
+        n_input_encoder = n_input 
+        if macrogene_matrix is not None:
+            if self.macrogene_hidden_dim is not None:
+                n_input_encoder = self.macrogene_hidden_dim
+            else:
+                n_input_encoder = macrogene_matrix.shape[1]
     
         
         self.z_encoder = BEncoder(
@@ -219,8 +229,12 @@ class BAScVI(nn.Module):
             x_ = torch.log(1 + self.scaling_factor * x / x.sum(dim=1, keepdim=True))
 
         if self.macrogene_matrix is not None:
-
-            mg_mat = self.macrogene_matrix_transform(self.macrogene_matrix)
+            if self.macrogene_hidden_dim is not None:
+                mg_mat = self.macrogene_matrix_transform(self.macrogene_matrix)
+                # add relu
+                mg_mat = torch.nn.functional.relu(mg_mat)
+            else:
+                mg_mat = self.macrogene_matrix
 
             x_ = nn.functional.linear(x_, mg_mat.transpose(0, 1))
 
@@ -314,17 +328,21 @@ class BAScVI(nn.Module):
             disc_loss_reduced, disc_loss_modality, disc_loss_study, disc_loss_sample = self.get_disc_loss(z_pred, x_pred, batch_vecs)
 
             reconst_loss = torch.mean(reconst_loss)
-            weighted_kl_local = kl_loss_weight * (torch.mean(weighted_kl_local))
-            disc_loss_reduced = disc_warmup_weight * disc_loss_weight * disc_loss_reduced
+            weighted_kl_local = torch.mean(weighted_kl_local)
 
-            disc_loss_modality = disc_warmup_weight * disc_loss_weight * disc_loss_modality
-            disc_loss_study = disc_warmup_weight * disc_loss_weight * disc_loss_study
-            disc_loss_sample = disc_warmup_weight * disc_loss_weight * disc_loss_sample
+            loss = reconst_loss + kl_loss_weight * weighted_kl_local - disc_loss_weight * disc_warmup_weight * disc_loss_reduced 
 
-
-            loss = reconst_loss + weighted_kl_local - disc_loss_reduced 
-
-            return {"loss": loss, "rec_loss": reconst_loss.detach(), "kl_local": weighted_kl_local.detach(), "disc_loss": disc_loss_reduced.detach(), "disc_loss_modality": disc_loss_modality.detach(), "disc_loss_study": disc_loss_study.detach(), "disc_loss_sample": disc_loss_sample.detach()}
+            return {
+                "loss": loss, 
+                "rec_loss": reconst_loss.detach(), 
+                "kl_local": weighted_kl_local.detach(), 
+                "kl_normal": torch.mean(kl_divergence_z).detach(),
+                "kl_library": torch.mean(kl_divergence_l).detach() if self.use_library else 0,
+                "disc_loss": disc_loss_reduced.detach(), 
+                "disc_loss_modality": disc_loss_modality.detach(), 
+                "disc_loss_study": disc_loss_study.detach(), 
+                "disc_loss_sample": disc_loss_sample.detach(),
+                }
             
         if optimizer_idx == 1:
 
