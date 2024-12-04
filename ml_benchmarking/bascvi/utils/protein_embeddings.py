@@ -31,7 +31,12 @@ def get_stacked_protein_embeddings_matrix(protein_embeddings_dir, species_list, 
     zero_embedding = np.zeros(genes_with_embeddings[list(genes_with_embeddings.keys())[0]].shape)
 
     # stack embeddings in order of gene list
-    protein_embeddings_matrix = [genes_with_embeddings[g].cpu().numpy() if g.lower() in genes_with_embeddings else zero_embedding for g in gene_list]
+    try:
+        protein_embeddings_matrix = [genes_with_embeddings[g].cpu().numpy() if g.lower() in genes_with_embeddings else zero_embedding for g in gene_list]
+    except:
+        protein_embeddings_matrix = [genes_with_embeddings[g] if g.lower() in genes_with_embeddings else zero_embedding for g in gene_list]
+
+
 
     return np.array(protein_embeddings_matrix)
 
