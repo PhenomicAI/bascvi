@@ -47,6 +47,7 @@ class BAScVITrainer(pl.LightningModule):
         use_macrogenes: bool = False,
         macrogene_method: str = "concat",
         macrogene_embedding_model: str = "ESM2",
+        macrogene_species_list: list = ['human', 'mouse'],
     ):
         super().__init__()
         # save hyperparameters in hparams.yaml file
@@ -75,12 +76,15 @@ class BAScVITrainer(pl.LightningModule):
         self.n_steps_discriminator_warmup = training_args.get("n_steps_discriminator_warmup")
         self.use_library = training_args.get("use_library")
         self.save_validation_umaps = training_args.get("save_validation_umaps")
+        self.run_metrics = training_args.get("run_metrics", False)
 
         self.gene_list = gene_list
 
         self.use_macrogenes = use_macrogenes
         self.macrogene_method = macrogene_method
         self.macrogene_embedding_model = macrogene_embedding_model
+
+        self.macrogene_species_list = macrogene_species_list
 
         # neat way to dynamically import classes
         # __import__ method used to fetch module
@@ -91,7 +95,7 @@ class BAScVITrainer(pl.LightningModule):
 
         if self.use_macrogenes:
             if self.macrogene_method == "concat_norm":
-                macrogene_matrix = get_stacked_protein_embeddings_matrix(f"/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=['human', 'mouse'])
+                macrogene_matrix = get_stacked_protein_embeddings_matrix(f"/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=self.macrogene_species_list)
                 # scale macrogene matrix
                 # scaler = StandardScaler()
                 # macrogene_matrix = scaler.fit_transform(macrogene_matrix)
@@ -99,13 +103,13 @@ class BAScVITrainer(pl.LightningModule):
                 macrogene_matrix = macrogene_matrix / macrogene_matrix.sum(axis=1, keepdims=True)
             
             elif self.macrogene_method == "concat":
-                macrogene_matrix = get_stacked_protein_embeddings_matrix(f"/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=['human', 'mouse'])
+                macrogene_matrix = get_stacked_protein_embeddings_matrix(f"/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=self.macrogene_species_list)
             
             elif self.macrogene_method == "saturn":
-                if os.path.isfile("/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/ESM2/2k_centroid_distance_matrix.npy"):
-                    macrogene_matrix = np.load("/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/ESM2/2k_centroid_distance_matrix.npy")
+                if os.path.isfile("/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/ESM2_phenomic/10k_centroid_distance_matrix_multispecies_06Nov2024.npy"):
+                    macrogene_matrix = np.load("/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/ESM2_phenomic/10k_centroid_distance_matrix_multispecies_06Nov2024.npy")
                 else:
-                    macrogene_matrix = get_centroid_distance_matrix(f"/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=['human', 'mouse'])
+                    macrogene_matrix = get_centroid_distance_matrix(f"/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=self.macrogene_species_list, num_clusters=10000)
             
             elif self.macrogene_method == "ortholog":
                 macrogene_matrix = np.load("/home/ubuntu/paper_repo/bascvi/data/ortho_gene_matrix.npy")
@@ -277,14 +281,15 @@ class BAScVITrainer(pl.LightningModule):
             for key, fig_path in fig_path_dict.items():
                 metrics_to_log[key] = wandb.Image(fig_path, caption=key)
 
-            # run metrics
-            metrics_dict = {}
-            metrics_dict.update(calc_kni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="study_name", n_neighbours=15, max_prop_same_batch=0.8))
-            metrics_dict.update(calc_rbni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="study_name", radius=1.0, max_prop_same_batch=0.8))
+            if self.run_metrics:
+                # run metrics
+                metrics_dict = {}
+                metrics_dict.update(calc_kni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="study_name", n_neighbours=15, max_prop_same_batch=0.8))
+                metrics_dict.update(calc_rbni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="study_name", radius=1.0, max_prop_same_batch=0.8))
 
-            # add "val_" prefix to keys
-            metrics_dict = {f"val_{k}": v for k, v in metrics_dict.items()}
-            metrics_to_log.update(metrics_dict)
+                # add "val_" prefix to keys
+                metrics_dict = {f"val_{k}": v for k, v in metrics_dict.items()}
+                metrics_to_log.update(metrics_dict)
             
             self.valid_counter += 1
 
