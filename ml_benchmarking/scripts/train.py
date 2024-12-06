@@ -13,6 +13,8 @@ from bascvi.utils.utils import umap_calc_and_save_html
 
 from bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 
+from bascvi.utils.utils import calc_kni_score, calc_rbni_score
+
 from pytorch_lightning.loggers import WandbLogger
 import wandb
 
@@ -128,12 +130,29 @@ def train(config: Dict):
                         ).concat().to_pandas()
     obs_df
     embeddings_df = embeddings_df.set_index("soma_joinid").join(obs_df.set_index("soma_joinid"))
+
+    obs_df = obs_df.set_index("soma_joinid").loc[embeddings_df.index]
     
     # embeddings_df, fig_save_dict = umap_calc_and_save_html(embeddings_df, emb_columns, trainer.default_root_dir)
 
     save_path = os.path.join(config["run_save_dir"], "pred_embeddings_" + os.path.splitext(os.path.basename(trainer.checkpoint_callback.best_model_path))[0] + ".tsv")
     embeddings_df.to_csv(save_path, sep="\t")
     logger.info(f"Saved predicted embeddings to: {save_path}")
+
+    # run metrics on the embeddings, and log to wandb
+    logger.info("--------------------------Run Metrics----------------------------")
+    kni_score = calc_kni_score(embeddings_df[emb_columns], obs_df)
+    rbni_score = calc_rbni_score(embeddings_df[emb_columns], obs_df)
+    logger.info(f"KNI Score: {kni_score}")
+    logger.info(f"RBNI Score: {rbni_score}")
+
+    # plot confusion matrix
+    confusion_matrix = kni_score["confusion_matrix"]
+    wandb.log({"confusion_matrix": wandb.plot.confusion_matrix(confusion_matrix, class_names=confusion_matrix.index)})
+
+
+    wandb.run.summary.update(kni_score)
+    wandb.run.summary.update(rbni_score)
 
     # end the wandb run
     wandb.finish()
