@@ -4,16 +4,17 @@
     "datamodule": {
         "class_name": "TileDBSomaIterDataModule",
         "options": {
-            "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/combined_scref_no_ortho/",
-            "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/human_mouse_train_medium_bal.pkl",
-            "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/human_mouse_genes_to_use_macrogenes.txt",
+            "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/multispecies_06Nov2024",
+            "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/multispecies_06Nov2024_train_bal_species.pkl",
+            "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/multispecies_06Nov2024_genes_to_use_macrogenes.txt",
             "block_size": 40000,
             "random_seed": 42,
             "dataloader_args": {
                 "batch_size": 64,
                 "num_workers": 4,
                 "pin_memory": true
-            }
+            },
+            "batch_keys": {"modality": "modality_name", "study": "study_name", "sample": "sample_name"}
         }
     },
     "emb_trainer": {
@@ -23,7 +24,7 @@
         "model_args": {
             "n_hidden": 512,
             "n_latent": 10,
-            "n_layers": 2,
+            "n_layers": 3,
             "scaling_factor": 1.0,
             "init_weights": true,
             "use_library": true,
