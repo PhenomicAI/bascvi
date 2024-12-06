@@ -49,7 +49,7 @@ def calc_kni_score(
           batch_col: str = "study_name",
           n_neighbours: int = 50,
           max_prop_same_batch: float = 0.8
-          ) -> float:
+          ) -> dict:
     """Calculates KNI score for embeddings
 
     Parameters
@@ -109,15 +109,20 @@ def calc_kni_score(
     batch_counts = {b: 0 for b in batch_cat.unique()}
     kni = {b: 0 for b in batch_cat.unique()}
 
+    conf_mat = np.zeros((len(cell_type_cat.unique()), len(cell_type_cat.unique())))
+
+    diverse_pass = 0.0
 
     diverse_neighbourhood_mask = num_same_batch < max_prop_same_batch * n_neighbours
 
     for i in range(embeddings_df.shape[0]):
         predicted_ct_by_all_neighbour = np.argmax(np.bincount(knn_ct[i,:]))
+        conf_mat[cell_type_cat[i], predicted_ct_by_all_neighbour] += 1
         if predicted_ct_by_all_neighbour == cell_type_cat[i]:
                 acc[batch_cat.iloc[i]] +=1
 
         if diverse_neighbourhood_mask[i]:
+            diverse_pass += 1
             predicted_ct_by_nonbatch_neighbour = np.argmax(np.bincount(knn_ct[i,:][not_same_batch_mask[i,:]]))
             batch_counts[batch_cat.iloc[i]] +=1
             if predicted_ct_by_nonbatch_neighbour == cell_type_cat[i]:
@@ -129,9 +134,11 @@ def calc_kni_score(
     for b in batch_cat.unique():
         kni_total += kni[b]
         acc_total += acc[b]
-    
 
-    return {'knn_acc': acc_total / embeddings_df.shape[0], 'kni': kni_total / embeddings_df.shape[0], 'pct_same_batch_in_knn': np.mean(num_same_batch) / n_neighbours}
+    # add labels to conf_mat
+    conf_mat = pd.DataFrame(conf_mat, index=obs_df[cell_type_col].astype('category').cat.categories, columns=obs_df[cell_type_col].astype('category').cat.categories)
+
+    return {'knn_acc': acc_total / embeddings_df.shape[0], 'kni': kni_total / embeddings_df.shape[0], 'pct_same_batch_in_knn': np.mean(num_same_batch) / n_neighbours, 'pct_diverse_neighbourhood': diverse_pass / embeddings_df.shape[0], 'confusion_matrix': conf_mat}
 
 def calc_rbni_score(
     embeddings_df: pd.DataFrame,
@@ -171,7 +178,8 @@ def calc_rbni_score(
     acc = {b: 0 for b in batch_cat.unique()}
     batch_counts = {b: 0 for b in batch_cat.unique()}
     rbni = {b: 0 for b in batch_cat.unique()}
-
+    
+    diverse_pass = 0.0
     global_prop_same_batch = 0.0
 
     for i in range(embeddings_df.shape[0]):
@@ -186,6 +194,7 @@ def calc_rbni_score(
         prop_same_batch = (len(neighbour_inds) - np.sum(different_batch_mask)) / len(neighbour_inds)
             
         if prop_same_batch < max_prop_same_batch:
+            diverse_pass += 1
             predicted_ct_by_nonbatch_neighbour = np.argmax(np.bincount(cell_type_cat[neighbour_inds[different_batch_mask]]))
             batch_counts[batch_cat.iloc[i]] +=1
             if predicted_ct_by_nonbatch_neighbour == cell_type_cat[i]:
@@ -200,7 +209,7 @@ def calc_rbni_score(
         acc_total += acc[b]
 
 
-    return {'radius_acc': acc_total / embeddings_df.shape[0], 'rbni': rbni_total / embeddings_df.shape[0], 'pct_same_batch_in_radius': global_prop_same_batch / embeddings_df.shape[0]}
+    return {'radius_acc': acc_total / embeddings_df.shape[0], 'rbni': rbni_total / embeddings_df.shape[0], 'pct_same_batch_in_radius': global_prop_same_batch / embeddings_df.shape[0], 'pct_diverse_neighbourhood': diverse_pass / embeddings_df.shape[0]}
 
 
 def umap_calc_and_save_html(
