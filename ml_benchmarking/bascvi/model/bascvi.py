@@ -307,6 +307,8 @@ class BAScVI(nn.Module):
 
             reconst_loss = self.get_reconstruction_loss(x, px_rate, px_r, px_dropout, feature_presence_mask)
             weighted_kl_local = kl_divergence_z
+
+            kl_divergence_l = 0
         
             if self.use_library:
         
