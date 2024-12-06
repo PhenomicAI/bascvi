@@ -108,8 +108,19 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             sample_idx = self.samples_list[len(samples_run)]
             print("starting with ", sample_idx)
 
+
+            # convert genes to use to bool
+            genes_to_use_bool = np.zeros(self.feature_presence_matrix.shape[1], dtype=bool)
+            genes_to_use_bool[self.genes_to_use] = True
+
+
             for sample_idx_i in tqdm(range(len(samples_run), len(self.samples_list))):
                 sample_idx = self.samples_list[sample_idx_i]
+
+                feature_presence_matrix = self.feature_presence_matrix[sample_idx, :].astype(bool)
+
+                # these are the genes that are present in this sample and in the genes_to_use list
+                sample_gene_ids = np.where(feature_presence_matrix & genes_to_use_bool)[0]
                 
                 # read soma_ids for this sample
                 soma_ids_in_sample = self.obs_df[self.obs_df["sample_idx"] == sample_idx]["soma_joinid"].values.tolist()
@@ -138,7 +149,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
                 try:
                     with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
                         X_curr = soma_experiment.ms["RNA"]["X"]["row_raw"].read((soma_ids_in_sample, None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[soma_ids_in_sample, :]
-                        X_curr = X_curr[:, self.genes_to_use]
+                        # filter genes to use
+                        X_curr = X_curr[:, sample_gene_ids]
                 except ArrowInvalid:
                     print("skipping calcs for ", sample_idx, ", not enough counts")
                     self.l_means.append(0)
@@ -222,6 +234,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
         if "nnz" in all_column_names:
             column_names.append("nnz")
+
         
         if self.train_column:
             column_names.append(self.train_column)
@@ -237,6 +250,21 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.var_df = soma_experiment.ms["RNA"].var.read(
                         column_names=("soma_joinid", "gene",),
                     ).concat().to_pandas()
+            
+            # ensure samples are unique across all studies
+            temp_df = self.obs_df.drop_duplicates(subset=[self.batch_keys["study"], self.batch_keys['sample']])
+            assert temp_df[self.batch_keys["sample"]].nunique() == temp_df.shape[0], "Samples are not unique across studies"
+
+            
+            # create idx columns in obs
+            self.obs_df["modality_idx"] = 0 #TODO: uncomment when we have modality, self.obs_df["modality_idx"] if self.batch_keys["modality"] == "modality_idx" else self.obs_df[self.batch_keys["modality"]].astype('category').cat.codes
+            self.obs_df["study_idx"] = self.obs_df["study_idx"] if self.batch_keys["study"] == "study_idx" else self.obs_df[self.batch_keys["study"]].astype('category').cat.codes
+            self.obs_df["sample_idx"] = self.obs_df["sample_idx"] if self.batch_keys["sample"] == "sample_idx" else self.obs_df[self.batch_keys["sample"]].astype('category').cat.codes
+
+            self.num_modalities = self.obs_df["modality_idx"].max() + 1
+            self.num_studies = self.obs_df["study_idx"].max() + 1
+            self.num_samples = self.obs_df["sample_idx"].max() + 1
+
             self.feature_presence_matrix = soma_experiment.ms["RNA"]["feature_presence_matrix"].read().coos(shape=(self.obs_df.sample_idx.nunique(), soma_experiment.ms["RNA"].var.count)).concat().to_scipy().toarray()
 
         # QUESTION: should we use all batches or only those in the training sample?
@@ -244,18 +272,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
         # TODO: ensure studies are unique across all modalities. is this necessary?
 
-        # ensure samples are unique across all studies
-        temp_df = self.obs_df.drop_duplicates(subset=[self.batch_keys["study"], self.batch_keys['sample']])
-        assert temp_df[self.batch_keys["sample"]].nunique() == temp_df.shape[0], "Samples are not unique across studies"
 
-        # create idx columns in obs
-        self.obs_df["modality_idx"] = 0 #TODO: uncomment when we have modality, self.obs_df["modality_idx"] if self.batch_keys["modality"] == "modality_idx" else self.obs_df[self.batch_keys["modality"]].astype('category').cat.codes
-        self.obs_df["study_idx"] = self.obs_df["study_idx"] if self.batch_keys["study"] == "study_idx" else self.obs_df[self.batch_keys["study"]].astype('category').cat.codes
-        self.obs_df["sample_idx"] = self.obs_df["sample_idx"] if self.batch_keys["sample"] == "sample_idx" else self.obs_df[self.batch_keys["sample"]].astype('category').cat.codes
 
-        self.num_modalities = self.obs_df["modality_idx"].max() + 1
-        self.num_studies = self.obs_df["study_idx"].max() + 1
-        self.num_samples = self.obs_df["sample_idx"].max() + 1
 
         # GENES
 
