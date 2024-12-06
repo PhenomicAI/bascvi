@@ -18,7 +18,7 @@ load_dotenv("/home/ubuntu/.aws.env")
 
 ACCESS_KEY = os.getenv("ACCESS_KEY")
 SECRET_KEY = os.getenv("SECRET_KEY")
-SOMA_CORPUS_URI = "s3://pai-scrnaseq/sctx_gui/corpora/combined_scref_no_ortho/"
+SOMA_CORPUS_URI = "s3://pai-scrnaseq/sctx_gui/corpora/multispecies_06Nov2024"
 
 soma_experiment = soma.Experiment.open(SOMA_CORPUS_URI, context=soma.SOMATileDBContext(tiledb_ctx=tiledb.Ctx({
         "vfs.s3.aws_access_key_id": ACCESS_KEY,
@@ -26,9 +26,15 @@ soma_experiment = soma.Experiment.open(SOMA_CORPUS_URI, context=soma.SOMATileDBC
         "vfs.s3.region": "us-east-2"
     })))
 
+obs_df = soma_experiment.obs.read().concat().to_pandas()
+species_list = obs_df.species.unique().tolist()
+print(species_list)
+print(obs_df.shape)
+
+
 var_df = soma_experiment.ms['RNA'].var.read().concat().to_pandas()
 var_df
-prot_emb_dict = get_protein_embeddings("/home/ubuntu/saturn/eval_scref_plus_mu/protein_embeddings_export/ESM2", ["human", "mouse"])
+prot_emb_dict = get_protein_embeddings("/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/ESM2_phenomic", species_list)
 
 genes_in_soma = var_df.gene.tolist()
 
@@ -40,5 +46,5 @@ for s in prot_emb_dict.keys():
 print(f"Total genes to use: {len(genes_to_use)}")
 
 # save the genes to use as text
-with open("/home/ubuntu/paper_repo/bascvi/data/human_mouse_genes_to_use_macrogenes.txt", "w") as f:
+with open("/home/ubuntu/paper_repo/bascvi/data/multispecies_06Nov2024_genes_to_use_macrogenes.txt", "w") as f:
     f.write("\n".join(genes_to_use))

@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from pathlib import Path
 
-from bascvi.utils.utils import calc_kni_score
+from bascvi.utils.utils import calc_kni_score, calc_rbni_score
 
 warnings.filterwarnings("ignore")
 
@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore")
 
 
 
-def run_kni_on_folder(root_dir: str, cell_type_col: str = "standard_true_celltype", batch_col: str = "study_name", max_prop_same_batch: float = 0.8):
+def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_celltype", batch_col: str = "study_name", max_prop_same_batch: float = 0.8):
 
     run_names = []
     pred_paths = []
@@ -61,6 +61,7 @@ def run_kni_on_folder(root_dir: str, cell_type_col: str = "standard_true_celltyp
         emb_df = pd.read_csv(emb_path, delimiter='\t')
 
         print(calc_kni_score(emb_df[cols], emb_df, batch_col=batch_col, max_prop_same_batch=max_prop_same_batch))
+        print(calc_rbni_score(emb_df[cols], emb_df, batch_col=batch_col, max_prop_same_batch=max_prop_same_batch))
 
     # cell_types = np.asarray(df_embeddings[cell_type_col].astype('category').cat.codes,dtype=int)
 
@@ -190,7 +191,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(f"Evaluating predictions from: {args.root_dir} with batch column: {args.batch_col} and max_prop_same_batch cutoff: {args.max_prop_same_batch}")
-
-    results = run_kni_on_folder(args.root_dir, batch_col=args.batch_col, max_prop_same_batch=args.max_prop_same_batch)
+    results = run_metrics_on_folder(args.root_dir, batch_col=args.batch_col, max_prop_same_batch=args.max_prop_same_batch)
 
     

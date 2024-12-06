@@ -7,7 +7,7 @@ import sys
 
 from scripts.train import train
 from scripts.predict import predict
-from scripts.run_kni_scoring import run_kni_on_folder
+from scripts.run_metrics_scoring import run_metrics_on_folder
 
 def run_config(config: dict):
 
