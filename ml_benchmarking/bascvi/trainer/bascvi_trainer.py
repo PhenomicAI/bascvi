@@ -48,6 +48,7 @@ class BAScVITrainer(pl.LightningModule):
         macrogene_method: str = "concat",
         macrogene_embedding_model: str = "ESM2",
         macrogene_species_list: list = ['human', 'mouse'],
+        macrogene_matrix_path: str = None,
     ):
         super().__init__()
         # save hyperparameters in hparams.yaml file
@@ -83,6 +84,7 @@ class BAScVITrainer(pl.LightningModule):
         self.use_macrogenes = use_macrogenes
         self.macrogene_method = macrogene_method
         self.macrogene_embedding_model = macrogene_embedding_model
+        self.macrogene_matrix_path = macrogene_matrix_path
 
         self.macrogene_species_list = macrogene_species_list
 
@@ -106,8 +108,8 @@ class BAScVITrainer(pl.LightningModule):
                 macrogene_matrix = get_stacked_protein_embeddings_matrix(f"/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=self.macrogene_species_list)
             
             elif self.macrogene_method == "saturn":
-                if os.path.isfile("/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/ESM2_phenomic/10k_centroid_distance_matrix_multispecies_06Nov2024.npy"):
-                    macrogene_matrix = np.load("/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/ESM2_phenomic/10k_centroid_distance_matrix_multispecies_06Nov2024.npy")
+                if os.path.isfile(self.macrogene_matrix_path):
+                    macrogene_matrix = np.load(self.macrogene_matrix_path)
                 else:
                     macrogene_matrix = get_centroid_distance_matrix(f"/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=self.macrogene_species_list, num_clusters=10000)
             
