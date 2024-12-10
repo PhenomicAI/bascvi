@@ -109,7 +109,7 @@ def calc_kni_score(
     batch_counts = {b: 0 for b in batch_cat.unique()}
     kni = {b: 0 for b in batch_cat.unique()}
 
-    conf_mat = np.zeros((len(cell_type_cat.unique()), len(cell_type_cat.unique())))
+    conf_mat = np.zeros((cell_type_cat.max() + 1, cell_type_cat.max() + 1))
 
     diverse_pass = 0.0
 
