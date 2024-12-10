@@ -226,7 +226,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         # read metadata
-        column_names = ["soma_joinid", "barcode", self.batch_keys["study"], self.batch_keys["sample"]] #, TODO: uncomment "modality"]
+        column_names = ["soma_joinid", "barcode", self.batch_keys["study"], self.batch_keys["sample"], "disease_name", "age_stage"] #, TODO: uncomment "modality"]
 
         # check if nnz in obs
         with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
@@ -401,17 +401,25 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         # filter cells
         self.obs_df = self.obs_df[self.obs_df["soma_joinid"].isin(self.cells_to_use)] 
 
+        print("Before filtering: ", self.obs_df.shape[0], " cells")
+
+        # filter nnz
+        if "nnz" in self.obs_df.columns:
+            pass_filter = self.obs_df["nnz"] > 300
+            print("Filtering cells with nnz < 300, ", pass_filter.sum(), " cells")
+            self.obs_df = self.obs_df[pass_filter] 
+
         # library calcs
         try:
             with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
                 self.library_calcs = soma_experiment.ms["RNA"]["sample_library_calcs"].read().concat().to_pandas()
                 self.library_calcs = self.library_calcs.set_index("sample_idx")
-            # filter nnz
-            if "nnz" in self.obs_df.columns:
-                self.obs_df = self.obs_df[self.obs_df["nnz"] > 300] 
+            
         except:
             self.filter_and_generate_library_calcs(iterative = (self.obs_df.shape[0] > 500000))
-            self.obs_df = self.obs_df[self.obs_df["soma_joinid"].isin(self.filter_pass_soma_ids)]
+            # TODO: uncomment
+            # print(len(set(self.filter_pass_soma_ids)), " cells passed final filter.")
+            # self.obs_df = self.obs_df[self.obs_df["soma_joinid"].isin(self.filter_pass_soma_ids)]
 
         # define cell_idx as range
         self.obs_df['cell_idx'] = range(self.obs_df.shape[0])
@@ -429,6 +437,10 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         # divide blocks into train test
         if self.num_total_blocks < self.dataloader_args['num_workers']:
             self.dataloader_args['num_workers'] = self.num_total_blocks
+
+        print(self.obs_df.study_name.value_counts(dropna=False))
+        print(self.obs_df.disease_name.value_counts(dropna=False))
+        print(self.obs_df.age_stage.value_counts(dropna=False))
 
      
         self.num_cells = self.obs_df.shape[0]
