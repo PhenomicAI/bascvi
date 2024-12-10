@@ -31,21 +31,33 @@ def run_sweep(base_config: dict, sweep_config_list: dict, base_root_dir: str = N
     run_metrics_on_folder(base_root_dir)
 
 if __name__ == '__main__':
-    with open("/home/ubuntu/paper_repo/bascvi/ml_benchmarking/config/multispecies_paper/train_ms_saturn.json") as json_file:
+    with open("/home/ubuntu/paper_repo/bascvi/ml_benchmarking/config/multispecies_paper/train_ms_saturn_10k.json") as json_file:
         base_config = json.load(json_file)
 
     # IMPORTANT: only works with two levels of nesting
     sweep_config_list = [
         {
             "emb_trainer": {
-                'model_args': {"n_latent": 20},
-            },
+                'model_args': {"n_latent": 10},
+                "training_args": {"kl_loss_weight": 1.0, "disc_loss_weight": 3000.0}
+            }
+        },
+
+        {
             "emb_trainer": {
                 'model_args': {"n_latent": 10},
+                "training_args": {"kl_loss_weight": 1.0, "disc_loss_weight": 5000.0}
+            }
+        },
+
+        {
+            "emb_trainer": {
+                'model_args': {"n_latent": 20},
+                "training_args": {"kl_loss_weight": 1.0, "disc_loss_weight": 7000.0}
             }
         },
 
 
     ]
 
-    run_sweep(base_config, sweep_config_list, base_root_dir="/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/ms_paper")
+    run_sweep(base_config, sweep_config_list, base_root_dir="/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/ms_paper/saturn_style_10k")

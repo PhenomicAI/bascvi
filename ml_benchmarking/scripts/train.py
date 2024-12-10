@@ -29,8 +29,8 @@ logger = logging.getLogger("pytorch_lightning")
 def train(config: Dict):
 
     # Initialize Wandb Logger
-    wandb_logger = WandbLogger(project="bascvi", save_dir=config["run_save_dir"])
-    wandb.init(project="bascvi", dir=config["run_save_dir"], config=config)
+    wandb_logger = WandbLogger(project="bascvi_ms_mammal", save_dir=config["run_save_dir"])
+    wandb.init(project="bascvi_ms_mammal", dir=config["run_save_dir"], config=config)
 
     # for tiledb
     torch.multiprocessing.set_start_method("fork", force=True)
