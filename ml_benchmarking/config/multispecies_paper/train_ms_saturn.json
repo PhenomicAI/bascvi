@@ -5,8 +5,8 @@
         "class_name": "TileDBSomaIterDataModule",
         "options": {
             "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/multispecies_06Nov2024",
-            "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/multispecies_06Nov2024_train_bal_species.pkl",
-            "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/multispecies_06Nov2024_genes_to_use_macrogenes.txt",
+            "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/barcode_lists/multispecies_06Nov2024_train_bal_species.pkl",
+            "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/gene_lists/multispecies_06Nov2024_genes_to_use_macrogenes.txt",
             "block_size": 50000,
             "random_seed": 42,
             "dataloader_args": {
@@ -56,7 +56,7 @@
             },
             "early_stopping": {
                 "monitor": "val_loss",
-                "patience": 10,
+                "patience": 5,
                 "mode": "min"
             }
         }

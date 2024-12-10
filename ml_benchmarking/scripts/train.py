@@ -148,7 +148,7 @@ def train(config: Dict):
 
     # plot confusion matrix
     confusion_matrix = kni_score["confusion_matrix"]
-    wandb.log({"confusion_matrix": wandb.plot.confusion_matrix(confusion_matrix, class_names=confusion_matrix.index)})
+    # wandb.log({"confusion_matrix": wandb.plot.confusion_matrix(confusion_matrix, class_names=confusion_matrix.index)})
 
 
     wandb.run.summary.update(kni_score)
