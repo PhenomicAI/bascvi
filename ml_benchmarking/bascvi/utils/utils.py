@@ -138,7 +138,13 @@ def calc_kni_score(
     # add labels to conf_mat
     conf_mat = pd.DataFrame(conf_mat, index=obs_df[cell_type_col].astype('category').cat.categories, columns=obs_df[cell_type_col].astype('category').cat.categories)
 
-    return {'knn_acc': acc_total / embeddings_df.shape[0], 'kni': kni_total / embeddings_df.shape[0], 'pct_same_batch_in_knn': np.mean(num_same_batch) / n_neighbours, 'pct_diverse_neighbourhood': diverse_pass / embeddings_df.shape[0], 'confusion_matrix': conf_mat}
+    return {
+        'knn_acc': acc_total / embeddings_df.shape[0], 
+        'kni': kni_total / embeddings_df.shape[0], 
+        'pct_same_batch_in_knn': np.mean(num_same_batch) / n_neighbours, 
+        'pct_diverse_neighbourhood': diverse_pass / embeddings_df.shape[0], 
+        #'confusion_matrix': conf_mat
+        }
 
 def calc_rbni_score(
     embeddings_df: pd.DataFrame,
