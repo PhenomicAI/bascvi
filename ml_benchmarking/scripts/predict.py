@@ -111,6 +111,9 @@ def predict(config: Dict):
         file_paths_df["file_counter"] = file_paths_df.index 
         embeddings_df = embeddings_df.merge(file_paths_df, on="file_counter")
 
-    save_path = os.path.join(config["run_save_dir"], "pred_embeddings_" + os.path.splitext(os.path.basename(config["pretrained_model_path"]))[0] + ".tsv")
+    if "embedding_file_name" not in config:
+        config["embedding_file_name"] = "pred_" + config["pretrained_model_path"].split("/")[-1].split(".")[0]
+
+    save_path = os.path.join(config["run_save_dir"], config["embedding_file_name"] + ".tsv")
     embeddings_df.to_csv(save_path, sep="\t")
     logger.info(f"Saved predicted embeddings to: {save_path}")

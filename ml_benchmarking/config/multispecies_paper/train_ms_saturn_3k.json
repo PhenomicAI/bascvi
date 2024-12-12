@@ -34,8 +34,8 @@
         },
         "training_args": {
             "n_steps_discriminator_warmup": 5000,
-            "disc_loss_weight": 10000.0,
-            "kl_loss_weight": 0.1,
+            "disc_loss_weight": 5000.0,
+            "kl_loss_weight": 1.0,
             "lr_scheduler_metric": "train_loss",
             "save_validation_umaps": true,
             "optimizer": {

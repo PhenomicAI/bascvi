@@ -19,6 +19,14 @@ from bascvi.utils.utils import calc_kni_score, calc_rbni_score
 
 warnings.filterwarnings("ignore")
 
+import tiledbsoma as soma
+import tiledb 
+
+from dotenv import load_dotenv
+
+
+
+
 
 # DIR = "/home/ubuntu/large-bascivi/exp_logs/scref_train"
 # exps = ["baseline_no_disc"]
@@ -36,7 +44,7 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
     # find all pred files
     for root, dirs, files in os.walk(root_dir, topdown=True):
         for file in files:
-            if "pred_embeddings" in file:
+            if "multispecies_06Nov2024_full_predictions" in file:
                 # get the directory after root_dir in root
                 run_names.append(root.split(root_dir)[1].split("/")[1])
                 pred_paths.append(os.path.join(root, file))
@@ -57,9 +65,32 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
     print("Run names:", run_names)
     print("Pred paths:", pred_paths)
 
+
+    load_dotenv("/home/ubuntu/.aws.env")
+
+    ACCESS_KEY = os.getenv("ACCESS_KEY")
+    SECRET_KEY = os.getenv("SECRET_KEY")
+    SOMA_CORPUS_URI = "s3://pai-scrnaseq/sctx_gui/corpora/multispecies_06Nov2024/"
+
+    soma_experiment = soma.Experiment.open(SOMA_CORPUS_URI, context=soma.SOMATileDBContext(tiledb_ctx=tiledb.Ctx({
+            "vfs.s3.aws_access_key_id": ACCESS_KEY,
+            "vfs.s3.aws_secret_access_key": SECRET_KEY,
+            "vfs.s3.region": "us-east-2"
+        })))
+
+    obs_df = soma_experiment.obs.read(column_names=["barcode", "standard_true_celltype"]).concat().to_pandas()
+    obs_df.columns
+
     for emb_path in pred_paths:
         emb_df = pd.read_csv(emb_path, delimiter='\t')
+        
+        # drop standard_true_celltype column if it exists
+        if "standard_true_celltype" in emb_df.columns:
+            emb_df = emb_df.drop("standard_true_celltype", axis=1)
 
+        emb_df = emb_df.set_index("barcode").join(obs_df.set_index("barcode"))
+        print()
+        print(emb_path)
         print(calc_kni_score(emb_df[cols], emb_df, batch_col=batch_col, max_prop_same_batch=max_prop_same_batch))
         print(calc_rbni_score(emb_df[cols], emb_df, batch_col=batch_col, max_prop_same_batch=max_prop_same_batch))
 
