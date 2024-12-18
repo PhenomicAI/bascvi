@@ -226,7 +226,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         # read metadata
-        column_names = ["soma_joinid", "barcode", self.batch_keys["study"], self.batch_keys["sample"], "disease_name", "age_stage"] #, TODO: uncomment "modality"]
+        column_names = ["soma_joinid", "barcode", self.batch_keys["study"], self.batch_keys["sample"], "disease_name", "age_stage", self.batch_keys["modality"]]
 
         # check if nnz in obs
         with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
@@ -257,7 +257,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
             
             # create idx columns in obs
-            self.obs_df["modality_idx"] = 0 #TODO: uncomment when we have modality, self.obs_df["modality_idx"] if self.batch_keys["modality"] == "modality_idx" else self.obs_df[self.batch_keys["modality"]].astype('category').cat.codes
+            self.obs_df["modality_idx"] = self.obs_df["modality_idx"] if self.batch_keys["modality"] == "modality_idx" else self.obs_df[self.batch_keys["modality"]].astype('category').cat.codes
             self.obs_df["study_idx"] = self.obs_df["study_idx"] if self.batch_keys["study"] == "study_idx" else self.obs_df[self.batch_keys["study"]].astype('category').cat.codes
             self.obs_df["sample_idx"] = self.obs_df["sample_idx"] if self.batch_keys["sample"] == "sample_idx" else self.obs_df[self.batch_keys["sample"]].astype('category').cat.codes
 
@@ -450,6 +450,10 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         print('# Blocks: ', self.num_total_blocks)
         print('# Genes: ', self.num_genes)
         print('# Total Cells: ', self.num_cells)  
+
+        print('# Modalities: ', self.num_modalities)
+        print('# Studies: ', self.num_studies)
+        print('# Samples: ', self.num_samples)
 
         print("Obs has ", self.obs_df.shape[0], " cells, ", self.obs_df.soma_joinid.nunique(), " unique soma_joinids")
         assert self.obs_df.soma_joinid.nunique() == self.obs_df.shape[0]

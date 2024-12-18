@@ -41,6 +41,27 @@ class FaissRadiusNeighbors:
             
         return vals
 
+def scale_embeddings(embeddings_df: pd.DataFrame) -> pd.DataFrame:
+    """Scales embeddings using quantile normalization
+
+    Parameters
+    ----------
+    embeddings_df: pd.DataFrame
+        embeddings to scale
+
+    Returns
+    -------
+    embeddings_df: pd.DataFrame
+        scaled embeddings
+    """
+    for col in embeddings_df.columns:
+        embeddings_df[col] = embeddings_df[col] - embeddings_df[col].mean()
+        (q1, q2) = embeddings_df[col].quantile([0.25, 0.75])
+        if q2 - q1 == 0:
+            embeddings_df[col] = 0
+        else:
+            embeddings_df[col] = embeddings_df[col] / (q2 - q1)
+    return embeddings_df
 
 def calc_kni_score(
           embeddings_df: pd.DataFrame, 
@@ -48,7 +69,8 @@ def calc_kni_score(
           cell_type_col: str = "standard_true_celltype", 
           batch_col: str = "study_name",
           n_neighbours: int = 50,
-          max_prop_same_batch: float = 0.8
+          max_prop_same_batch: float = 0.8,
+          exclude_unknown: bool = True
           ) -> dict:
     """Calculates KNI score for embeddings
 
@@ -74,19 +96,21 @@ def calc_kni_score(
     embeddings_df = embeddings_df.reset_index(drop=True)
     obs_df = obs_df.reset_index(drop=True)
 
-    # Subset to not "Unknown" cell types
-    embeddings_df = embeddings_df[obs_df[cell_type_col] != "Unknown"]
-    obs_df = obs_df[obs_df[cell_type_col] != "Unknown"]
+    if exclude_unknown:
+        # Subset to not "Unknown" cell types
+        embeddings_df = embeddings_df[obs_df[cell_type_col] != "Unknown"]
+        obs_df = obs_df[obs_df[cell_type_col] != "Unknown"]
 
     # scale embeddings using quantile normalization
-    for col in embeddings_df.columns:
-        embeddings_df[col] = embeddings_df[col] - embeddings_df[col].mean()
-        (q1, q2) = embeddings_df[col].quantile([0.25, 0.75])
-        embeddings_df[col] = embeddings_df[col] / (q2 - q1)
+    embeddings_df = scale_embeddings(embeddings_df)
 
     # get categories
     cell_type_cat = np.asarray(obs_df[cell_type_col].astype('category').cat.codes, dtype=int) - obs_df[cell_type_col].astype('category').cat.codes.min()
-    batch_cat = obs_df[batch_col].astype('category').cat.codes
+    
+    obs_df[batch_col] = obs_df[batch_col].astype('category')
+    batch_cat = obs_df[batch_col].cat.codes
+    batch_name = obs_df[batch_col].cat.categories
+
 
     # fit classifier
     classifier = KNeighborsClassifier(n_neighbors=n_neighbours)
@@ -102,48 +126,79 @@ def calc_kni_score(
 
     batch_mat = np.repeat(np.expand_dims(batch_cat, 1), knn_batch.shape[1], axis=1)
 
+    # calculate diverse neighbourhood mask
     not_same_batch_mask = knn_batch != batch_mat
     num_same_batch = np.sum(np.logical_not(not_same_batch_mask), axis=1)
+    diverse_neighbourhood_mask = num_same_batch < max_prop_same_batch * n_neighbours
 
+    # results dict
     acc = {b: 0 for b in batch_cat.unique()}
     batch_counts = {b: 0 for b in batch_cat.unique()}
     kni = {b: 0 for b in batch_cat.unique()}
+    diverse_pass = {b: 0 for b in batch_cat.unique()}
 
-    conf_mat = np.zeros((cell_type_cat.max() + 1, cell_type_cat.max() + 1))
+    acc_conf_mat = np.zeros((cell_type_cat.max() + 1, cell_type_cat.max() + 1))
+    kni_conf_mat = np.zeros((cell_type_cat.max() + 1, cell_type_cat.max() + 1))
 
-    diverse_pass = 0.0
-
-    diverse_neighbourhood_mask = num_same_batch < max_prop_same_batch * n_neighbours
 
     for i in range(embeddings_df.shape[0]):
-        predicted_ct_by_all_neighbour = np.argmax(np.bincount(knn_ct[i,:]))
-        conf_mat[cell_type_cat[i], predicted_ct_by_all_neighbour] += 1
-        if predicted_ct_by_all_neighbour == cell_type_cat[i]:
-                acc[batch_cat.iloc[i]] +=1
 
-        if diverse_neighbourhood_mask[i]:
-            diverse_pass += 1
-            predicted_ct_by_nonbatch_neighbour = np.argmax(np.bincount(knn_ct[i,:][not_same_batch_mask[i,:]]))
-            batch_counts[batch_cat.iloc[i]] +=1
-            if predicted_ct_by_nonbatch_neighbour == cell_type_cat[i]:
-                kni[batch_cat.iloc[i]] +=1
-            
+        # add cell to batch count
+        batch_counts[batch_cat.iloc[i]] +=1
+
+        # predict cell type using all neighbours
+        predicted_ct_by_all_neighbour = np.argmax(np.bincount(knn_ct[i,:]))
+        acc_conf_mat[cell_type_cat[i], predicted_ct_by_all_neighbour] += 1
         
-    kni_total = 0.0
-    acc_total = 0.0
-    for b in batch_cat.unique():
-        kni_total += kni[b]
-        acc_total += acc[b]
+        # if cell type is correctly predicted
+        if predicted_ct_by_all_neighbour == cell_type_cat[i]:
+            # add to accuracy
+            acc[batch_cat.iloc[i]] +=1
+
+        # if cell is in a diverse neighbourhood
+        if diverse_neighbourhood_mask[i]:
+
+            # add to diverse neighbourhood count
+            diverse_pass[batch_cat.iloc[i]] += 1
+
+            # if cell type is correctly predicted by non-batch neighbours
+            predicted_ct_by_nonbatch_neighbour = np.argmax(np.bincount(knn_ct[i,:][not_same_batch_mask[i,:]]))
+            kni_conf_mat[cell_type_cat[i], predicted_ct_by_nonbatch_neighbour] += 1
+
+            if predicted_ct_by_nonbatch_neighbour == cell_type_cat[i]:
+                # add to kni
+                kni[batch_cat.iloc[i]] +=1
+
+
+
+    # make df from dicts
+    results_df = pd.DataFrame([acc, kni, batch_counts, diverse_pass], index=["acc_count_knn", "kni_count", "batch_count_knn", "diverse_pass_count_knn"]).T
+
+    # calculate total scores 
+    kni_total = results_df["kni_count"].sum() / results_df["batch_count_knn"].sum()
+    acc_total = results_df["acc_count_knn"].sum() / results_df["batch_count_knn"].sum()
+    diverse_pass_total = results_df["diverse_pass_count_knn"].sum() / results_df["batch_count_knn"].sum()
 
     # add labels to conf_mat
-    conf_mat = pd.DataFrame(conf_mat, index=obs_df[cell_type_col].astype('category').cat.categories, columns=obs_df[cell_type_col].astype('category').cat.categories)
+    acc_conf_mat = pd.DataFrame(acc_conf_mat, index=obs_df[cell_type_col].astype('category').cat.categories, columns=obs_df[cell_type_col].astype('category').cat.categories)
+    kni_conf_mat = pd.DataFrame(kni_conf_mat, index=obs_df[cell_type_col].astype('category').cat.categories, columns=obs_df[cell_type_col].astype('category').cat.categories)
+
+    # add batch name to results, ensure same order as codes
+    results_df["batch_name"] = batch_name
+
+    # add sub scores
+    results_df["kni_batch"] = results_df["kni_count"] / results_df["batch_count_knn"]
+    results_df["acc_knn"] = results_df["acc_count_knn"] / results_df["batch_count_knn"]
+    results_df["diverse_pass_knn"] = results_df["diverse_pass_count_knn"] / results_df["batch_count_knn"]
 
     return {
-        'knn_acc': acc_total / embeddings_df.shape[0], 
-        'kni': kni_total / embeddings_df.shape[0], 
-        'pct_same_batch_in_knn': np.mean(num_same_batch) / n_neighbours, 
-        'pct_diverse_neighbourhood': diverse_pass / embeddings_df.shape[0], 
-        #'confusion_matrix': conf_mat
+        'acc_knn': acc_total,
+        'kni': kni_total,
+        'mean_pct_same_batch_in_knn': np.mean(num_same_batch) / n_neighbours, 
+        'pct_cells_with_diverse_knn': diverse_pass_total, 
+        'confusion_matrix': acc_conf_mat,
+        'kni_confusion_matrix': kni_conf_mat,
+        'results_by_batch': results_df
         }
 
 def calc_rbni_score(
@@ -152,25 +207,26 @@ def calc_rbni_score(
     cell_type_col: str = "standard_true_celltype",
     batch_col: str = "study_name",
     radius: float = 1.0,
-    max_prop_same_batch: float = 0.8
+    max_prop_same_batch: float = 0.8,
+    exclude_unknown: bool = True
 ):
     # Reset index
     embeddings_df = embeddings_df.reset_index(drop=True)
     obs_df = obs_df.reset_index(drop=True)
 
-    # Subset to not "Unknown" cell types
-    embeddings_df = embeddings_df[obs_df[cell_type_col] != "Unknown"]
-    obs_df = obs_df[obs_df[cell_type_col] != "Unknown"]
+    if exclude_unknown:
+        # Subset to not "Unknown" cell types
+        embeddings_df = embeddings_df[obs_df[cell_type_col] != "Unknown"]
+        obs_df = obs_df[obs_df[cell_type_col] != "Unknown"]
 
     # scale embeddings using quantile normalization
-    for col in embeddings_df.columns:
-        embeddings_df[col] = embeddings_df[col] - embeddings_df[col].mean()
-        (q1, q2) = embeddings_df[col].quantile([0.25, 0.75])
-        embeddings_df[col] = embeddings_df[col] / (q2 - q1)
+    embeddings_df = scale_embeddings(embeddings_df)
 
     # get categories
     cell_type_cat = np.asarray(obs_df[cell_type_col].astype('category').cat.codes, dtype=int) - obs_df[cell_type_col].astype('category').cat.codes.min()
-    batch_cat = obs_df[batch_col].astype('category').cat.codes
+    obs_df[batch_col] = obs_df[batch_col].astype('category')
+    batch_cat = obs_df[batch_col].cat.codes
+    batch_name = obs_df[batch_col].cat.categories
 
     # fit classifier
     classifier = FaissRadiusNeighbors(r=radius)
@@ -179,44 +235,67 @@ def calc_rbni_score(
     # get radius neighbors
     vals = classifier.radius_neighbors(embeddings_df.values)
 
-
     # calculate rbni score
     acc = {b: 0 for b in batch_cat.unique()}
     batch_counts = {b: 0 for b in batch_cat.unique()}
     rbni = {b: 0 for b in batch_cat.unique()}
+    diverse_pass = {b: 0 for b in batch_cat.unique()}
     
-    diverse_pass = 0.0
     global_prop_same_batch = 0.0
 
     for i in range(embeddings_df.shape[0]):
         neighbour_inds = vals[i]
         if len(neighbour_inds) == 0:
             continue
+        # add cell to batch count
+        batch_counts[batch_cat.iloc[i]] +=1
+
+        # predict cell type using all neighbours
         predicted_ct_by_all_neighbour = np.argmax(np.bincount(cell_type_cat[neighbour_inds]))
+
+        # if cell type is correctly predicted
         if predicted_ct_by_all_neighbour == cell_type_cat[i]:
+                # add to accuracy
                 acc[batch_cat.iloc[i]] += 1
 
         different_batch_mask = batch_cat.iloc[neighbour_inds] != batch_cat.iloc[i]
         prop_same_batch = (len(neighbour_inds) - np.sum(different_batch_mask)) / len(neighbour_inds)
-            
+        # if cell is in a diverse neighbourhood
         if prop_same_batch < max_prop_same_batch:
-            diverse_pass += 1
+            # add to diverse neighbourhood count
+            diverse_pass[batch_cat.iloc[i]] += 1
+            # if cell type is correctly predicted by non-batch neighbours
             predicted_ct_by_nonbatch_neighbour = np.argmax(np.bincount(cell_type_cat[neighbour_inds[different_batch_mask]]))
-            batch_counts[batch_cat.iloc[i]] +=1
             if predicted_ct_by_nonbatch_neighbour == cell_type_cat[i]:
+                # add to rbni
                 rbni[batch_cat.iloc[i]] +=1       
 
         global_prop_same_batch += prop_same_batch 
         
-    rbni_total = 0.0
-    acc_total = 0.0
-    for b in batch_cat.unique():
-        rbni_total += rbni[b]
-        acc_total += acc[b]
+    # make df from dicts
+    results_df = pd.DataFrame([acc, rbni, batch_counts, diverse_pass], index=["acc_count_radius", "rbni_count", "batch_count_radius", "diverse_pass_count_radius"]).T
 
+    # add batch name to results, ensure same order as codes
+    results_df["batch_name"] = batch_name
 
-    return {'radius_acc': acc_total / embeddings_df.shape[0], 'rbni': rbni_total / embeddings_df.shape[0], 'pct_same_batch_in_radius': global_prop_same_batch / embeddings_df.shape[0], 'pct_diverse_neighbourhood': diverse_pass / embeddings_df.shape[0]}
+    # calculate total scores
+    rbni_total = results_df["rbni_count"].sum() / results_df["batch_count_radius"].sum()
+    acc_total = results_df["acc_count_radius"].sum() / results_df["batch_count_radius"].sum()
+    diverse_pass = results_df["diverse_pass_count_radius"].sum() / results_df["batch_count_radius"].sum()
+    global_prop_same_batch = global_prop_same_batch / embeddings_df.shape[0]
 
+    # add sub scores
+    results_df["rbni_batch"] = results_df["rbni_count"] / results_df["batch_count_radius"]
+    results_df["acc_radius"] = results_df["acc_count_radius"] / results_df["batch_count_radius"]
+    results_df["diverse_pass_radius"] = results_df["diverse_pass_count_radius"] / results_df["batch_count_radius"]
+
+    return {
+        'rbni': rbni_total,
+        'acc_radius': acc_total,
+        'mean_pct_same_batch_in_radius': global_prop_same_batch,
+        'pct_cells_with_diverse_radius': diverse_pass,
+        'results_by_batch': results_df
+    }
 
 def umap_calc_and_save_html(
     embeddings: pd.DataFrame,

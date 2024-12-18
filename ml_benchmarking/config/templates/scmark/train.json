@@ -25,7 +25,7 @@
             "n_hidden": 512,
             "n_latent": 10,
             "n_layers": 2,
-            "scaling_factor": 1.0,
+            "scaling_factor": 10000.0,
             "init_weights": false,
             "use_library": true,
             "use_batch_encoder": true

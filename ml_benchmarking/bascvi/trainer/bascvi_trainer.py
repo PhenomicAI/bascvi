@@ -27,6 +27,25 @@ import numpy as np
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+                
+
+# https://www.microsoft.com/en-us/research/blog/less-pain-more-gain-a-simple-method-for-vae-training-with-less-of-that-kl-vanishing-agony/
+def get_kld_cycle(epoch, period=20):
+    '''
+    0-10: 0 to 1
+    10-20 1
+    21-30 0 to 1
+    30-40 1
+    '''
+    ct = epoch % period
+    pt = epoch % (period//2)
+    if ct >= period//2:
+        return 1
+    else:
+        
+        return min(1, (pt) / (period//2))    
+
+
 
 class BAScVITrainer(pl.LightningModule):
     """Lightning module to train scvi-vae model.
@@ -49,6 +68,7 @@ class BAScVITrainer(pl.LightningModule):
         macrogene_embedding_model: str = "ESM2",
         macrogene_species_list: list = ['human', 'mouse'],
         macrogene_matrix_path: str = None,
+        freeze_macrogene_matrix: bool = True,
     ):
         super().__init__()
         # save hyperparameters in hparams.yaml file
@@ -85,6 +105,7 @@ class BAScVITrainer(pl.LightningModule):
         self.macrogene_method = macrogene_method
         self.macrogene_embedding_model = macrogene_embedding_model
         self.macrogene_matrix_path = macrogene_matrix_path
+        self.freeze_macrogene_matrix = freeze_macrogene_matrix
 
         self.macrogene_species_list = macrogene_species_list
 
@@ -119,6 +140,7 @@ class BAScVITrainer(pl.LightningModule):
 
 
             model_args["macrogene_matrix"] = torch.from_numpy(macrogene_matrix).float()
+            model_args["freeze_macrogene_matrix"] = self.freeze_macrogene_matrix
 
         self.vae = Vae(**model_args)
 
@@ -169,10 +191,13 @@ class BAScVITrainer(pl.LightningModule):
         """Scaling factor on KL divergence during training."""
         epoch_criterion = self.n_epochs_kl_warmup is not None
         step_criterion = self.n_steps_kl_warmup is not None
+        cyclic_criterion = self.training_args.get("cyclic_kl_period")
         if epoch_criterion:
             kl_weight = min(1.0, self.current_epoch / self.n_epochs_kl_warmup)
         elif step_criterion:
             kl_weight = min(1.0, self.global_step / self.n_steps_kl_warmup)
+        elif cyclic_criterion:
+            kl_weight = get_kld_cycle(self.current_epoch, period=cyclic_criterion)
         else:
             kl_weight = 1.0
         return kl_weight
@@ -380,4 +405,3 @@ class BAScVITrainer(pl.LightningModule):
         else:
             print("Adversarial Training: False")
             return config
-                

@@ -54,7 +54,8 @@ class BAScVI(nn.Module):
         use_batch_encoder = True,
         use_zinb = True,
         macrogene_matrix = None,
-        macrogene_hidden_dim = None
+        macrogene_hidden_dim = None,
+        freeze_macrogene_matrix = True
     ):
         super().__init__()
 
@@ -81,10 +82,16 @@ class BAScVI(nn.Module):
             if self.macrogene_hidden_dim is not None:
                 self.macrogene_matrix_transform = torch.nn.Linear(macrogene_matrix.shape[1], self.macrogene_hidden_dim)
             
-            self.macrogene_matrix = torch.nn.Parameter(macrogene_matrix, requires_grad=False)
-            # freeze the macrogene matrix
-            assert self.macrogene_matrix.requires_grad == False
-            print("Using macrogene matrix:", self.macrogene_matrix.shape, "hidden dim:", self.macrogene_hidden_dim)
+            if freeze_macrogene_matrix:
+                self.macrogene_matrix = torch.nn.Parameter(macrogene_matrix, requires_grad=False)
+                # freeze the macrogene matrix
+                assert self.macrogene_matrix.requires_grad == False
+            else:
+                self.macrogene_matrix = torch.nn.Parameter(macrogene_matrix, requires_grad=True)
+                # unfreeze the macrogene matrix
+                assert self.macrogene_matrix.requires_grad == True
+
+            print("Using macrogene matrix:", self.macrogene_matrix.shape, "hidden dim:", self.macrogene_hidden_dim, "frozen:", freeze_macrogene_matrix)
         else:
             print("Not using macrogene matrix")
             self.macrogene_matrix = None

@@ -17,6 +17,10 @@ from pathlib import Path
 
 from bascvi.utils.utils import calc_kni_score, calc_rbni_score
 
+import tiledbsoma as soma
+import tiledb 
+from dotenv import load_dotenv
+
 warnings.filterwarnings("ignore")
 
 
@@ -26,7 +30,23 @@ warnings.filterwarnings("ignore")
 
 
 
-def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_celltype", batch_col: str = "study_name", max_prop_same_batch: float = 0.8):
+def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_celltype", batch_col: str = "study_name", max_prop_same_batch: float = 0.8, exclude_unknown: bool = True):
+
+    load_dotenv("/home/ubuntu/.aws.env")
+
+    ACCESS_KEY = os.getenv("ACCESS_KEY")
+    SECRET_KEY = os.getenv("SECRET_KEY")
+    SOMA_CORPUS_URI = "s3://pai-scrnaseq/sctx_gui/corpora/multispecies_06Nov2024"
+
+    soma_experiment = soma.Experiment.open(SOMA_CORPUS_URI, context=soma.SOMATileDBContext(tiledb_ctx=tiledb.Ctx({
+            "vfs.s3.aws_access_key_id": ACCESS_KEY,
+            "vfs.s3.aws_secret_access_key": SECRET_KEY,
+            "vfs.s3.region": "us-east-2"
+        })))
+
+    obs_df = soma_experiment.obs.read(column_names=["barcode", "species"]).concat().to_pandas()
+    obs_df.columns
+
 
     run_names = []
     pred_paths = []
@@ -36,7 +56,7 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
     # find all pred files
     for root, dirs, files in os.walk(root_dir, topdown=True):
         for file in files:
-            if "pred_embeddings" in file:
+            if "pred_" in file:
                 # get the directory after root_dir in root
                 run_names.append(root.split(root_dir)[1].split("/")[1])
                 pred_paths.append(os.path.join(root, file))
@@ -57,116 +77,71 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
     print("Run names:", run_names)
     print("Pred paths:", pred_paths)
 
-    for emb_path in pred_paths:
-        emb_df = pd.read_csv(emb_path, delimiter='\t')
+    results_list = []
 
-        print(calc_kni_score(emb_df[cols], emb_df, batch_col=batch_col, max_prop_same_batch=max_prop_same_batch))
-        print(calc_rbni_score(emb_df[cols], emb_df, batch_col=batch_col, max_prop_same_batch=max_prop_same_batch))
+    pbar = tqdm(enumerate(pred_paths), total=len(pred_paths))
+    for i, emb_path in pbar:
+        if "tsv" in emb_path:
+            emb_df = pd.read_csv(emb_path, delimiter='\t')
+        else:
+            emb_df = pd.read_csv(emb_path)
 
-    # cell_types = np.asarray(df_embeddings[cell_type_col].astype('category').cat.codes,dtype=int)
-
-    # cat = df_embeddings[batch_col].astype('category')
-    # mapping = cat.cat.categories
-    # study_name = cat.cat.codes
-    # studies = list(range(len(mapping)))
-
-    # results = pd.DataFrame(np.zeros((len(studies), run_names.shape[0])), index=studies, columns=run_names)
-
-    # print("Starting Loop")
-
-
-    # # KNI loop
-    # for ii,fname in enumerate(tqdm(pred_paths)):
-
-    #     df_embeddings = pd.read_csv(fname,delimiter='\t') # scVI / BAscVI / Harmony / Scanorama
-    #     print(" - loaded embeddings")
-
-    #     for i in range(dims[ii]):
-    #         df_embeddings[cols[i]] = df_embeddings[cols[i]] - np.mean(df_embeddings[cols[i]])
-    #         (q1,q2) = np.quantile(df_embeddings[cols[i]],[0.25,0.75])
-    #         df_embeddings[cols[i]] = df_embeddings[cols[i]]/(q2-q1)
+        # add species column
+        if "species" not in emb_df.columns:
+            emb_df = emb_df.set_index("barcode").join(obs_df.set_index("barcode"))
         
-    #     print(" - normalized")
+        # make metrics folder
+        metrics_dir = os.path.join(root_dir, run_names[i], "metrics")
+        os.makedirs(metrics_dir, exist_ok=True)
 
-        
-    #     cell_types = np.asarray(df_embeddings[cell_type_col].astype('category').cat.codes,dtype=int) - df_embeddings[cell_type_col].astype('category').cat.codes.min()
-    #     cat = df_embeddings['study_name'].astype('category')
-    #     mapping = cat.cat.categories
-    #     study_name = cat.cat.codes
+        # set neurons
+        neuron_list = ['Glutamatergic_neuron','Chandelier_and_Lamp5', 'Interneuron']
+        emb_df[cell_type_col] = emb_df[cell_type_col].apply(lambda x: "Neuron" if x in neuron_list else x)
 
 
-    #     classifier = KNeighborsClassifier(n_neighbors=50) # 25 used for csv file
+        run_results_by_batch = []
 
-    #     classifier.fit(df_embeddings[cols[:dims[ii]]], cell_types)
-    #     print(" - classifier fit")
+        # iterate over emb_df grouped by species
+        for species, species_df in emb_df.groupby("species"):
+           
+            pbar.set_description(f"kni: {run_names[i]}")
+            kni = calc_kni_score(species_df[cols], species_df, batch_col=batch_col, cell_type_col=cell_type_col, max_prop_same_batch=max_prop_same_batch, exclude_unknown=exclude_unknown)
+            # pbar.set_description(f"rbni: {run_names[i]}")
+            # rbni = calc_rbni_score(emb_df[cols], emb_df, batch_col=batch_col, cell_type_col=cell_type_col, max_prop_same_batch=max_prop_same_batch)
 
-    #     vals = classifier.kneighbors(n_neighbors=50)
+            pbar.set_description(f"saving: {run_names[i]}")
 
-    #     knn_ct = cell_types[vals[1].flatten()].reshape(vals[1].shape)
-    #     knn_exp = study_name.iloc[vals[1].flatten()].values.reshape(vals[1].shape)
-        
-    #     exp_mat = np.repeat(np.expand_dims(study_name,1),knn_exp.shape[1],axis=1)
-        
-    #     self_mask = knn_exp != exp_mat
-    #     cutoff = np.sum(np.logical_not(self_mask),axis=1)
+            # save confusion matrices
+            confusion_matrix = kni["confusion_matrix"]
+            kni_confusion_matrix = kni["kni_confusion_matrix"]
 
-    #     acc = {study:0 for study in studies}
-    #     batch = {study:0 for study in studies}
-    #     kni = {study:0 for study in studies}
+            confusion_matrix.to_csv(os.path.join(metrics_dir, f"confusion_matrix_{species}.tsv"), sep="\t")
+            kni_confusion_matrix.to_csv(os.path.join(metrics_dir, f"kni_confusion_matrix_{species}.tsv"), sep="\t")
 
-    #     mask_1 = cutoff < 40
+            # get results by batch
+            kni_results_by_batch = kni["results_by_batch"]
+            kni_results_by_batch['species'] = species
 
-    #     for i in tqdm(range(df_embeddings.shape[0])):
-    #         if mask_1[i]:
-    #             acc[study_name[i]]
-    #             pred = np.argmax(np.bincount(knn_ct[i,:][self_mask[i,:]]))
-    #             batch[study_name[i]] +=1
-    #             if pred == cell_types[i]:
-    #                 kni[study_name[i]] +=1
-        
-    #     print(fname)
-    #     total = 0
-    #     for study in studies:
-    #         # print(mapping[study], '\t', kni[study])
-            
-    #         results[run_names[ii]].loc[study] = kni[study]
-    #         total += kni[study]
-    #     print("Total:  ", total, " Cell N:  ", df_embeddings.shape[0]," % Acc: " , total/df_embeddings.shape[0])
-    #     print()
-        
-        # # Break down into accuracy vs. batch / kbet
+            # rbni_results_by_batch = rbni["results_by_batch"]
 
-        # print("Batch breadkdown:")
-        # print()
-        
-        # for study in studies:
-        #     print(mapping[study], '\t', batch[study])
-        
-        # print()
-        # print("Accuracy breadkdown:")
-        # print()
-        
-        # for study in studies:
-            
-        #     classifier = KNeighborsClassifier(n_neighbors=10) # 25 used for csv file
-            
-        #     study_mask = mapping[study] == df_embeddings['study_name']
-            
-        #     classifier.fit(df_embeddings[cols[:dims[ii]]].values[np.logical_not(study_mask),:], 
-        #                 cell_types[np.logical_not(study_mask)])
-            
-        #     pred = classifier.predict(df_embeddings[cols[:dims[ii]]].values[study_mask,:])
-        #     acc[study] = np.sum(pred == cell_types[study_mask])
-            
-        #     print(mapping[study],'\t',acc[study])
-            
-        # print()
+            # assert no identical column names
+            # assert len(set(kni_results_by_batch.columns).intersection(set(rbni_results_by_batch.columns))) == 1, "Identical column names in kni and rbni results_by_batch"
 
-    # results.to_csv(os.path.join(root_dir, "kni_results.csv"))
+            # merge kni and rbni results by batch_name
+            run_results_by_batch.append(kni_results_by_batch)# pd.merge(kni_results_by_batch, rbni_results_by_batch, on="batch_name")
 
-    # return results
+        results_by_batch = pd.concat(run_results_by_batch, axis=0)
+        results_by_batch["model_path"] = emb_path
 
-    
+        # save 
+        results_by_batch.to_csv(os.path.join(metrics_dir, "metrics_by_batch_restrict_species.tsv"), sep="\t")
+
+        results_list.append(results_by_batch)
+
+    results = pd.concat(results_list)
+
+    results.to_csv(os.path.join(root_dir, "metrics_by_batch_restrict_species.tsv"), sep="\t")
+
 
 if __name__ == "__main__":
     parser = ArgumentParser(description=__doc__)
@@ -181,6 +156,12 @@ if __name__ == "__main__":
         type=str,
         default="study_name"
     )
+    parser.add_argument(
+        "-c",
+        "--cell_type_col",
+        type=str,
+        default="standard_true_celltype"
+    )
 
     parser.add_argument(
         "-p",
@@ -188,9 +169,10 @@ if __name__ == "__main__":
         type=float,
         default=0.8
     )
+
     args = parser.parse_args()
 
     print(f"Evaluating predictions from: {args.root_dir} with batch column: {args.batch_col} and max_prop_same_batch cutoff: {args.max_prop_same_batch}")
-    results = run_metrics_on_folder(args.root_dir, batch_col=args.batch_col, max_prop_same_batch=args.max_prop_same_batch)
+    results = run_metrics_on_folder(args.root_dir, batch_col=args.batch_col, cell_type_col=args.cell_type_col, max_prop_same_batch=args.max_prop_same_batch, exclude_unknown=False)
 
     
