@@ -1,16 +1,11 @@
 {
     "mode": "predict",
+    "embedding_file_name": "multispecies_06Nov2024_full_predictions",
 
-    "pretrained_model_path": "/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/ms_paper/emb_trainer_{'model_args': {'n_latent': 20}}/bascvi/3adnr0qo/checkpoints/scvi-vae-epoch=09-elbo_val=0.00.ckpt",
-
-    "run_save_dir": "/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/ms_paper/emb_trainer_{'model_args': {'n_latent': 20}}/",
-    
     "datamodule": {
         "class_name": "TileDBSomaIterDataModule",
         "options": {
             "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/multispecies_06Nov2024",
-            "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/multispecies_06Nov2024_train_bal_species.pkl",
-
             "block_size": 40000,
             "dataloader_args": {
                 "batch_size": 64,

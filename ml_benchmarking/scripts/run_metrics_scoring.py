@@ -23,6 +23,14 @@ from dotenv import load_dotenv
 
 warnings.filterwarnings("ignore")
 
+import tiledbsoma as soma
+import tiledb 
+
+from dotenv import load_dotenv
+
+
+
+
 
 # DIR = "/home/ubuntu/large-bascivi/exp_logs/scref_train"
 # exps = ["baseline_no_disc"]

@@ -1,41 +1,46 @@
 {
     "mode": "train",
+
+    "run_save_dir": "./runs/v6_finetune_cell_lines/",
+    "load_from_checkpoint": "/home/ubuntu/paper_repo/bascvi/checkpoints/bascvi_human_v6.0.5.ckpt",
     
     "datamodule": {
         "class_name": "TileDBSomaIterDataModule",
         "options": {
-            "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/multispecies_06Nov2024",
-            "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/barcode_lists/multispecies_06Nov2024_train_bal_species.pkl",
-            "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/gene_lists/multispecies_06Nov2024_genes_to_use_macrogenes.txt",
+            "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/human_29Oct2024/",
+            "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/v6_cell_line_barcodes.pkl",
+            "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/genes_2ksamples_10cells.txt",
             "block_size": 40000,
+            "calc_library": false,
             "random_seed": 42,
             "dataloader_args": {
                 "batch_size": 64,
-                "num_workers": 4,
+                "num_workers": 6,
                 "pin_memory": true
             },
-            "batch_keys": {"modality": "modality_name", "study": "study_name", "sample": "sample_name"}
+            "batch_keys": {
+                "modality": "modality_name", "study": "study_name", "sample": "sample_name"
+            }
         }
     },
     "emb_trainer": {
         "module_name": "bascvi",
         "class_name": "BAScVI",
-        "use_macrogenes": true,
         "model_args": {
             "n_hidden": 512,
             "n_latent": 10,
-            "n_layers": 3,
+            "n_layers": 4,
             "scaling_factor": 1.0,
-            "init_weights": true,
+            "init_weights": false,
             "use_library": true,
             "use_batch_encoder": true
         },
         "training_args": {
-            "n_steps_discriminator_warmup": 5000,
+            "n_epochs_discriminator_warmup": 5,
             "disc_loss_weight": 1000.0,
             "kl_loss_weight": 1.0,
             "lr_scheduler_metric": "train_loss",
-            "save_validation_umaps": true,
+            "save_validation_umaps": false,
             "optimizer": {
                 "lr": 0.0001,
                 "weight_decay": 1e-6,
@@ -55,12 +60,9 @@
             },
             "early_stopping": {
                 "monitor": "val_loss",
-                "patience": 10,
+                "patience": 5,
                 "mode": "min"
             }
         }
-    },
-    "pl_trainer": {
-        "check_val_every_n_epoch": 2
     }
 }
