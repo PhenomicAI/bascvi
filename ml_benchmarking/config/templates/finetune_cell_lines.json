@@ -2,7 +2,6 @@
     "mode": "train",
 
     "run_save_dir": "./runs/v6_finetune_cell_lines/",
-    "load_from_checkpoint": "/home/ubuntu/paper_repo/bascvi/checkpoints/bascvi_human_v6.0.5.ckpt",
     
     "datamodule": {
         "class_name": "TileDBSomaIterDataModule",
@@ -17,9 +16,6 @@
                 "batch_size": 64,
                 "num_workers": 6,
                 "pin_memory": true
-            },
-            "batch_keys": {
-                "modality": "modality_name", "study": "study_name", "sample": "sample_name"
             }
         }
     },
