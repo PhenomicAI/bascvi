@@ -45,7 +45,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         exclude_ribo_mito = True,
         train_column: str = None,
         random_seed: int = 42,
-        batch_keys = {"modality": "modality_name", "study": "study_name", "sample": "sample_idx"}
+        batch_keys = {"modality": "scrnaseq_protocol", "study": "study_name", "sample": "sample_idx"}
         ):
         super().__init__()
 
