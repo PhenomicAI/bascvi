@@ -46,11 +46,11 @@ Trainers
 
 ## Models
 
-Are based off the ScVI arcitecture.
+All models are based off the [scVI](https://www.nature.com/articles/s41592-018-0229-2) arcitecture.
 
 Key adjustments are detailed in our paper.
 
-The standard ScVI models is contained in xxx
+The standard ScVI models is contained in scvi.py
 
 Our modified Batch-Adversarial ScVI model is in bascvi.py
 
