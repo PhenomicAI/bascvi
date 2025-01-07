@@ -46,7 +46,7 @@ Trainers
 
 ## Models
 
-All models are based off the [scVI](https://www.nature.com/articles/s41592-018-0229-2) arcitecture.
+All models are based off the [scVI](https://www.nature.com/articles/s41592-018-0229-2) architectures.
 
 Key adjustments are detailed in our paper.
 
