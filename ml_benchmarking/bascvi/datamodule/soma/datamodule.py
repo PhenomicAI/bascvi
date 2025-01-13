@@ -261,9 +261,9 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.obs_df["study_idx"] = self.obs_df["study_idx"] if self.batch_keys["study"] == "study_idx" else self.obs_df[self.batch_keys["study"]].astype('category').cat.codes
             self.obs_df["sample_idx"] = self.obs_df["sample_idx"] if self.batch_keys["sample"] == "sample_idx" else self.obs_df[self.batch_keys["sample"]].astype('category').cat.codes
 
-            self.num_modalities = self.obs_df["modality_idx"].max() + 1
-            self.num_studies = self.obs_df["study_idx"].max() + 1
-            self.num_samples = self.obs_df["sample_idx"].max() + 1
+            self.num_modalities = int(self.obs_df["modality_idx"].max() + 1)
+            self.num_studies = int(self.obs_df["study_idx"].max() + 1)
+            self.num_samples = int(self.obs_df["sample_idx"].max() + 1)
 
             self.feature_presence_matrix = soma_experiment.ms["RNA"]["feature_presence_matrix"].read().coos(shape=(self.obs_df.sample_idx.nunique(), soma_experiment.ms["RNA"].var.count)).concat().to_scipy().toarray()
 
