@@ -38,7 +38,7 @@ from dotenv import load_dotenv
 
 
 
-def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_celltype", batch_col: str = "study_name", max_prop_same_batch: float = 0.8, exclude_unknown: bool = True):
+def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_celltype", batch_col: str = "study_name", max_prop_same_batch: float = 0.8, exclude_unknown: bool = True, restrict_species: bool = False):
 
     load_dotenv("/home/ubuntu/.aws.env")
 
@@ -106,14 +106,55 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
         neuron_list = ['Glutamatergic_neuron','Chandelier_and_Lamp5', 'Interneuron']
         emb_df[cell_type_col] = emb_df[cell_type_col].apply(lambda x: "Neuron" if x in neuron_list else x)
 
+        if restrict_species:
+            save_name = "metrics_by_batch_restrict_species.tsv"
+        else:
+            save_name = "metrics_by_batch.tsv"
 
-        run_results_by_batch = []
+        if restrict_species:
 
-        # iterate over emb_df grouped by species
-        for species, species_df in emb_df.groupby("species"):
-           
+            run_results_by_batch = []
+
+            # iterate over emb_df grouped by species
+            for species, species_df in emb_df.groupby("species"):
+            
+                pbar.set_description(f"kni: {run_names[i]}")
+                kni = calc_kni_score(species_df[cols], species_df, batch_col=batch_col, cell_type_col=cell_type_col, max_prop_same_batch=max_prop_same_batch, exclude_unknown=exclude_unknown)
+                # pbar.set_description(f"rbni: {run_names[i]}")
+                # rbni = calc_rbni_score(emb_df[cols], emb_df, batch_col=batch_col, cell_type_col=cell_type_col, max_prop_same_batch=max_prop_same_batch)
+
+                pbar.set_description(f"saving: {run_names[i]}")
+
+                # save confusion matrices
+                confusion_matrix = kni["confusion_matrix"]
+                kni_confusion_matrix = kni["kni_confusion_matrix"]
+
+                confusion_matrix.to_csv(os.path.join(metrics_dir, f"confusion_matrix_{species}.tsv"), sep="\t")
+                kni_confusion_matrix.to_csv(os.path.join(metrics_dir, f"kni_confusion_matrix_{species}.tsv"), sep="\t")
+
+                # get results by batch
+                kni_results_by_batch = kni["results_by_batch"]
+                kni_results_by_batch['species'] = species
+
+                # rbni_results_by_batch = rbni["results_by_batch"]
+
+                # assert no identical column names
+                # assert len(set(kni_results_by_batch.columns).intersection(set(rbni_results_by_batch.columns))) == 1, "Identical column names in kni and rbni results_by_batch"
+
+                # merge kni and rbni results by batch_name
+                run_results_by_batch.append(kni_results_by_batch)# pd.merge(kni_results_by_batch, rbni_results_by_batch, on="batch_name")
+
+            results_by_batch = pd.concat(run_results_by_batch, axis=0)
+            results_by_batch["model_path"] = emb_path
+
+            # save 
+            results_by_batch.to_csv(os.path.join(metrics_dir, "metrics_by_batch_restrict_species.tsv"), sep="\t")
+
+            results_list.append(results_by_batch)
+        else:
+            # calculate kni and rbni scores
             pbar.set_description(f"kni: {run_names[i]}")
-            kni = calc_kni_score(species_df[cols], species_df, batch_col=batch_col, cell_type_col=cell_type_col, max_prop_same_batch=max_prop_same_batch, exclude_unknown=exclude_unknown)
+            kni = calc_kni_score(emb_df[cols], emb_df, batch_col=batch_col, cell_type_col=cell_type_col, max_prop_same_batch=max_prop_same_batch, exclude_unknown=exclude_unknown, n_neighbours=50) # TODO: switch to 50
             # pbar.set_description(f"rbni: {run_names[i]}")
             # rbni = calc_rbni_score(emb_df[cols], emb_df, batch_col=batch_col, cell_type_col=cell_type_col, max_prop_same_batch=max_prop_same_batch)
 
@@ -123,32 +164,26 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
             confusion_matrix = kni["confusion_matrix"]
             kni_confusion_matrix = kni["kni_confusion_matrix"]
 
-            confusion_matrix.to_csv(os.path.join(metrics_dir, f"confusion_matrix_{species}.tsv"), sep="\t")
-            kni_confusion_matrix.to_csv(os.path.join(metrics_dir, f"kni_confusion_matrix_{species}.tsv"), sep="\t")
+            confusion_matrix.to_csv(os.path.join(metrics_dir, "confusion_matrix.tsv"), sep="\t")
+            kni_confusion_matrix.to_csv(os.path.join(metrics_dir, "kni_confusion_matrix.tsv"), sep="\t")
 
             # get results by batch
             kni_results_by_batch = kni["results_by_batch"]
-            kni_results_by_batch['species'] = species
 
-            # rbni_results_by_batch = rbni["results_by_batch"]
+            kni_results_by_batch["model_path"] = emb_path
 
-            # assert no identical column names
-            # assert len(set(kni_results_by_batch.columns).intersection(set(rbni_results_by_batch.columns))) == 1, "Identical column names in kni and rbni results_by_batch"
+            results_list.append(kni["results_by_batch"])
+            
+            print(f"Saving metrics for: {run_names[i]}")
+            print_list = ['acc_knn', 'kni', 'mean_pct_same_batch_in_knn', 'pct_cells_with_diverse_knn']
+            for metric in print_list:
+                print(f"{metric}: {kni[metric]}")
+            print("\n\n")
 
-            # merge kni and rbni results by batch_name
-            run_results_by_batch.append(kni_results_by_batch)# pd.merge(kni_results_by_batch, rbni_results_by_batch, on="batch_name")
-
-        results_by_batch = pd.concat(run_results_by_batch, axis=0)
-        results_by_batch["model_path"] = emb_path
-
-        # save 
-        results_by_batch.to_csv(os.path.join(metrics_dir, "metrics_by_batch_restrict_species.tsv"), sep="\t")
-
-        results_list.append(results_by_batch)
 
     results = pd.concat(results_list)
 
-    results.to_csv(os.path.join(root_dir, "metrics_by_batch_restrict_species.tsv"), sep="\t")
+    results.to_csv(os.path.join(root_dir, save_name), sep="\t")
 
 
 if __name__ == "__main__":
