@@ -14,7 +14,7 @@
                 "num_workers": 4,
                 "pin_memory": true
             },
-            "batch_keys": {"modality": "modality_name", "study": "study_name", "sample": "sample_name"}
+            "batch_keys": {"modality": "scrnaseq_protocol", "study": "study_name", "sample": "sample_name"}
         }
     },
     "emb_trainer": {
