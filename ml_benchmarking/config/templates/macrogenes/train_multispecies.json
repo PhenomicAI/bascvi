@@ -1,5 +1,7 @@
 {
     "mode": "train",
+
+    "wandb_project_name": "bascvi_ms_mammal",
     
     "datamodule": {
         "class_name": "TileDBSomaIterDataModule",

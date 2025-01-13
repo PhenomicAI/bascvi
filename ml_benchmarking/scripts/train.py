@@ -27,9 +27,12 @@ logger = logging.getLogger("pytorch_lightning")
 
 
 def train(config: Dict):
+    
+    if "wandb_project_name" not in config:
+        config["wandb_project_name"] = "bascvi"
 
     # Initialize Wandb Logger
-    wandb_logger = WandbLogger(project="bascvi_ms_mammal", save_dir=config["run_save_dir"])
+    wandb_logger = WandbLogger(project=config["wandb_project_name"], save_dir=config["run_save_dir"])
     wandb.init(project="bascvi_ms_mammal", dir=config["run_save_dir"], config=config)
 
     # for tiledb
