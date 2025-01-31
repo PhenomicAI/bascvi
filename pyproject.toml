@@ -34,4 +34,5 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = ["*tests*", "*venv*", "*runs*"]
+include = ["ml_benchmarking*"]
+exclude = ["*tests*", "*venv*", "*runs*", "*notebooks*", "llm_scripts*", "pai*", "pai_soma_data*"]
