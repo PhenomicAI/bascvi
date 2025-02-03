@@ -1,0 +1,23 @@
+{
+    "mode": "predict",
+    "embedding_file_name": "multispecies_06Nov2024_full_predictions",
+
+    "datamodule": {
+        "class_name": "TileDBSomaIterDataModule",
+        "options": {
+            "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/multispecies_06Nov2024",
+            "block_size": 40000,
+            "dataloader_args": {
+                "batch_size": 64,
+                "num_workers": 4,
+                "pin_memory": true
+            },
+            "batch_keys": {"modality": "modality_name", "study": "study_name", "sample": "sample_name"}
+
+        }
+    },
+
+    "trainer_module_name": "bascvi_trainer",
+    "trainer_class_name": "BAScVITrainer"
+
+}
