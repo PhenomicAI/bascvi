@@ -226,7 +226,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         # read metadata
-        column_names = ["soma_joinid", "barcode", self.batch_keys["study"], self.batch_keys["sample"], "disease_name", "age_stage", self.batch_keys["modality"]]
+        column_names = ["soma_joinid", "barcode", self.batch_keys["study"], self.batch_keys["sample"], self.batch_keys["modality"]]
 
         # check if nnz in obs
         with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
@@ -365,7 +365,6 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.num_genes = len(self.genes_to_use)
 
 
-        self.feature_presence_matrix = self.feature_presence_matrix[:, self.genes_to_use]
                
         # CELLS
 
@@ -439,9 +438,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.dataloader_args['num_workers'] = self.num_total_blocks
 
         print(self.obs_df.study_name.value_counts(dropna=False))
-        print(self.obs_df.disease_name.value_counts(dropna=False))
-        print(self.obs_df.age_stage.value_counts(dropna=False))
 
+        self.feature_presence_matrix = self.feature_presence_matrix[:, self.genes_to_use]
      
         self.num_cells = self.obs_df.shape[0]
 

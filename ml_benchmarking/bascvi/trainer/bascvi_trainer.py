@@ -292,7 +292,8 @@ class BAScVITrainer(pl.LightningModule):
 
             obs_columns = ["standard_true_celltype", "study_name", "sample_name"]
             if self.use_macrogenes:
-                obs_columns.append("species")
+                obs_columns.append("species") 
+                pass
 
             if self.obs_df is None:
                 with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
@@ -302,6 +303,20 @@ class BAScVITrainer(pl.LightningModule):
             if "species" not in self.obs_df.columns:
                 print("Adding species column to obs, assuming human data")
                 self.obs_df["species"] = "human"
+
+                # assign species based on study_name
+                self.obs_df.loc[self.obs_df["study_name"].str.contains("_m-"), "species"] = "mouse"
+                self.obs_df.loc[self.obs_df["study_name"].str.contains("_r-"), "species"] = "rat"
+                self.obs_df.loc[self.obs_df["study_name"].str.contains("_l-"), "species"] = "lemur"
+                self.obs_df.loc[self.obs_df["study_name"].str.contains("_c-"), "species"] = "macaque"
+                self.obs_df.loc[self.obs_df["study_name"].str.contains("_f-"), "species"] = "fly"
+                self.obs_df.loc[self.obs_df["study_name"].str.contains("_a-"), "species"] = "axolotl"
+                self.obs_df.loc[self.obs_df["study_name"].str.contains("_z-"), "species"] = "zebrafish"
+
+                obs_columns.append("species")
+
+
+
             
             _, fig_path_dict = umap_calc_and_save_html(embeddings_df.set_index("soma_joinid").join(self.obs_df, how="inner").reset_index(), emb_columns, save_dir, obs_columns, max_cells=100000)
 
