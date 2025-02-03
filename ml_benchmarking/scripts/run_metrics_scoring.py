@@ -180,6 +180,9 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
                 print(f"{metric}: {kni[metric]}")
             print("\n\n")
 
+            kni['non_diverse_correctly_predicted'].to_csv(os.path.join(metrics_dir, "non_diverse_correctly_predicted.tsv"), sep="\t")
+            kni['non_diverse_incorrectly_predicted'].to_csv(os.path.join(metrics_dir, "non_diverse_incorrectly_predicted.tsv"), sep="\t")
+
 
     results = pd.concat(results_list)
 
@@ -216,6 +219,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(f"Evaluating predictions from: {args.root_dir} with batch column: {args.batch_col} and max_prop_same_batch cutoff: {args.max_prop_same_batch}")
-    results = run_metrics_on_folder(args.root_dir, batch_col=args.batch_col, cell_type_col=args.cell_type_col, max_prop_same_batch=args.max_prop_same_batch, exclude_unknown=False)
+    results = run_metrics_on_folder(args.root_dir, batch_col=args.batch_col, cell_type_col=args.cell_type_col, max_prop_same_batch=args.max_prop_same_batch, exclude_unknown=True)
 
     

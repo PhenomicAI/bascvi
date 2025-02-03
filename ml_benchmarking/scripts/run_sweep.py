@@ -44,13 +44,22 @@ if __name__ == '__main__':
 
     # IMPORTANT: only works with two levels of nesting
     sweep_config_list = [
-
         {
             "emb_trainer": {
-                'model_args': {"n_latent": 10, "n_layers": 1, "n_hidden": 256},       
-                'training_args':{
-                    'optimizer': {'lr': 5e-5, 'weight_decay': 1e-6},
-                }     
+                'model_args': {"n_latent": 10, "n_layers": 1, "n_hidden": 512},
+                "training_args": {"disc_loss_weight": 5000.0,}
+            }
+        },
+        {
+            "emb_trainer": {
+                'model_args': {"n_latent": 10, "n_layers": 1, "n_hidden": 2048},
+                "training_args": {"disc_loss_weight": 5000.0,}
+            }
+        },
+        {
+            "emb_trainer": {
+                'model_args': {"n_latent": 10, "n_layers": 4, "n_hidden": 512},
+                "training_args": {"disc_loss_weight": 5000.0,}
             }
         },
 
@@ -58,4 +67,4 @@ if __name__ == '__main__':
 
     ]
 
-    run_sweep(base_config, sweep_config_list, base_root_dir="/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/ms_paper/saturn_style_3k_10k_scaling")
+    run_sweep(base_config, sweep_config_list, base_root_dir="/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/multispecies_04Jan2025_3k_model_size_new_norm")

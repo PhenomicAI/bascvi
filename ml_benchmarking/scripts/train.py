@@ -33,7 +33,7 @@ def train(config: Dict):
 
     # Initialize Wandb Logger
     wandb_logger = WandbLogger(project=config["wandb_project_name"], save_dir=config["run_save_dir"])
-    wandb.init(project="bascvi_ms_mammal", dir=config["run_save_dir"], config=config)
+    wandb.init(project=config["wandb_project_name"], dir=config["run_save_dir"], config=config)
 
     # for tiledb
     torch.multiprocessing.set_start_method("fork", force=True)
@@ -152,6 +152,16 @@ def train(config: Dict):
     # plot confusion matrix
     confusion_matrix = kni_score["confusion_matrix"]
     # wandb.log({"confusion_matrix": wandb.plot.confusion_matrix(confusion_matrix, class_names=confusion_matrix.index)})
+
+    # drop the confusion matrix from the kni_score dict
+    kni_score.pop("confusion_matrix")
+    kni_score.pop("kni_confusion_matrix")
+    kni_score.pop("results_by_batch")
+    kni_score.pop("non_diverse")
+    kni_score.pop("non_diverse_correctly_predicted")
+    kni_score.pop("non_diverse_incorrectly_predicted")
+
+    rbni_score.pop("results_by_batch")
 
 
     wandb.run.summary.update(kni_score)

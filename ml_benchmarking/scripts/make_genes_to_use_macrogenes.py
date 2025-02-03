@@ -18,7 +18,7 @@ load_dotenv("/home/ubuntu/.aws.env")
 
 ACCESS_KEY = os.getenv("ACCESS_KEY")
 SECRET_KEY = os.getenv("SECRET_KEY")
-SOMA_CORPUS_URI = "s3://pai-scrnaseq/sctx_gui/corpora/multispecies_06Nov2024"
+SOMA_CORPUS_URI = "/home/ubuntu/paper_repo/bascvi/data/corpora/multispecies_04Jan2025"
 
 soma_experiment = soma.Experiment.open(SOMA_CORPUS_URI, context=soma.SOMATileDBContext(tiledb_ctx=tiledb.Ctx({
         "vfs.s3.aws_access_key_id": ACCESS_KEY,
@@ -27,7 +27,8 @@ soma_experiment = soma.Experiment.open(SOMA_CORPUS_URI, context=soma.SOMATileDBC
     })))
 
 obs_df = soma_experiment.obs.read().concat().to_pandas()
-species_list = obs_df.species.unique().tolist()
+# species_list = obs_df.species.unique().tolist()
+species_list = ['human', 'mouse', 'lemur', 'macaque', 'rat', 'fly', 'zebrafish', 'axolotl']
 print(species_list)
 print(obs_df.shape)
 
@@ -46,5 +47,5 @@ for s in prot_emb_dict.keys():
 print(f"Total genes to use: {len(genes_to_use)}")
 
 # save the genes to use as text
-with open("/home/ubuntu/paper_repo/bascvi/data/multispecies_06Nov2024_genes_to_use_macrogenes.txt", "w") as f:
+with open("/home/ubuntu/paper_repo/bascvi/data/multispecies_04Jan2025_genes_to_use_macrogenes.txt", "w") as f:
     f.write("\n".join(genes_to_use))
