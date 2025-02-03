@@ -154,18 +154,18 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                     # read block
                     with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
                         # OLD WAY
-                        # self.X_block = soma_experiment.ms["RNA"]["X"][self.X_array_name].read((tuple(self.soma_joinid_block), None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.soma_joinid_block, :]
-                        with soma_experiment.axis_query("RNA", obs_query=soma.AxisQuery(coords=(tuple(self.soma_joinid_block),))) as query:
-                            adata = query.to_anndata(X_name='row_raw', column_names={"obs":["soma_joinid"], "var":[]})
-                            adata.obs_names = adata.obs["soma_joinid"].astype(str)
+                        self.X_block = soma_experiment.ms["RNA"]["X"][self.X_array_name].read((tuple(self.soma_joinid_block), None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.soma_joinid_block, :]
+                        # with soma_experiment.axis_query("RNA", obs_query=soma.AxisQuery(coords=(tuple(self.soma_joinid_block),))) as query:
+                        #     adata = query.to_anndata(X_name='row_raw', column_names={"obs":["soma_joinid"], "var":[]})
+                        #     adata.obs_names = adata.obs["soma_joinid"].astype(str)
 
-                    # make soma_joinid_block a list of strings
-                    soma_joinid_block_str = [str(x) for x in self.soma_joinid_block]
-                    adata = adata[soma_joinid_block_str, :]
+                    # # make soma_joinid_block a list of strings
+                    # soma_joinid_block_str = [str(x) for x in self.soma_joinid_block]
+                    # adata = adata[soma_joinid_block_str, :]
 
-                    assert np.all(adata.obs["soma_joinid"] == self.soma_joinid_block)
+                    # assert np.all(adata.obs["soma_joinid"] == self.soma_joinid_block)
 
-                    self.X_block = adata.X
+                    # self.X_block = adata.X
                     
                     self.X_block = self.X_block[:, self.genes_to_use]
                     
