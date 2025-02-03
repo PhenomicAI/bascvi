@@ -92,22 +92,41 @@ def calc_kni_score(
     kni_score: float
         KNI score
     """
+
     # Reset index
     embeddings_df = embeddings_df.reset_index(drop=True)
     obs_df = obs_df.reset_index(drop=True)
 
+    # set N/A to Unknown
+    # check if N/A exists
+    if obs_df[cell_type_col].isna().sum() > 0:
+        # add "Unknown" to categories
+        obs_df[cell_type_col] = obs_df[cell_type_col].astype('str')
+        obs_df[cell_type_col] = obs_df[cell_type_col].fillna("Unknown")
+        obs_df[cell_type_col] = obs_df[cell_type_col].astype('category')
+
     if exclude_unknown:
         # Subset to not "Unknown" cell types
-        embeddings_df = embeddings_df[obs_df[cell_type_col] != "Unknown"]
-        obs_df = obs_df[obs_df[cell_type_col] != "Unknown"]
+        unknown_list = ["Unknown", "", 'unknown', 'nan', 'NaN', 'NA', 'na', 'N/A', 'n/a']
+        embeddings_df = embeddings_df[~obs_df[cell_type_col].isin(unknown_list)]
+        obs_df = obs_df[~obs_df[cell_type_col].isin(unknown_list)]
 
+        assert embeddings_df.shape[0] == obs_df.shape[0]
+
+ 
     # scale embeddings using quantile normalization
     embeddings_df = scale_embeddings(embeddings_df)
 
     # get categories
-    cell_type_cat = np.asarray(obs_df[cell_type_col].astype('category').cat.codes, dtype=int) - obs_df[cell_type_col].astype('category').cat.codes.min()
-    
+    obs_df[cell_type_col] = obs_df[cell_type_col].astype('category')
     obs_df[batch_col] = obs_df[batch_col].astype('category')
+
+    cell_type_cat = np.array(obs_df[cell_type_col].cat.codes)
+    assert -1 not in cell_type_cat, "N/A cell type in cell type column"
+
+    print(np.unique(cell_type_cat))
+    print(obs_df[cell_type_col].cat.categories)
+
     batch_cat = obs_df[batch_col].cat.codes
     batch_name = obs_df[batch_col].cat.categories
 
@@ -137,9 +156,11 @@ def calc_kni_score(
     kni = {b: 0 for b in batch_cat.unique()}
     diverse_pass = {b: 0 for b in batch_cat.unique()}
 
-    acc_conf_mat = np.zeros((cell_type_cat.max() + 1, cell_type_cat.max() + 1))
-    kni_conf_mat = np.zeros((cell_type_cat.max() + 1, cell_type_cat.max() + 1))
+    num_cell_cats = obs_df[cell_type_col].cat.categories.shape[0]
+    acc_conf_mat = np.zeros((num_cell_cats, num_cell_cats))
+    kni_conf_mat = np.zeros((num_cell_cats, num_cell_cats))
 
+    not_diverse_df = []
 
     for i in range(embeddings_df.shape[0]):
 
@@ -169,6 +190,11 @@ def calc_kni_score(
                 # add to kni
                 kni[batch_cat.iloc[i]] +=1
 
+        # if cell is not in a diverse neighbourhood
+        else:
+            # add to not diverse df
+            not_diverse_df.append({'batch_name': batch_cat.iloc[i], 'cell_type': cell_type_cat[i], 'predicted_cell_type': predicted_ct_by_all_neighbour})
+
 
 
     # make df from dicts
@@ -179,17 +205,36 @@ def calc_kni_score(
     acc_total = results_df["acc_count_knn"].sum() / results_df["batch_count_knn"].sum()
     diverse_pass_total = results_df["diverse_pass_count_knn"].sum() / results_df["batch_count_knn"].sum()
 
-    # add labels to conf_mat
-    acc_conf_mat = pd.DataFrame(acc_conf_mat, index=obs_df[cell_type_col].astype('category').cat.categories, columns=obs_df[cell_type_col].astype('category').cat.categories)
-    kni_conf_mat = pd.DataFrame(kni_conf_mat, index=obs_df[cell_type_col].astype('category').cat.categories, columns=obs_df[cell_type_col].astype('category').cat.categories)
+    # format confusion matrix
+    labels = obs_df[cell_type_col].cat.categories
+    acc_conf_mat = pd.DataFrame(acc_conf_mat, index=labels, columns=labels)
+    kni_conf_mat = pd.DataFrame(kni_conf_mat, index=labels, columns=labels)
 
     # add batch name to results, ensure same order as codes
-    results_df["batch_name"] = batch_name
+    results_df["batch_name"] = obs_df[batch_col].cat.categories[results_df.index]
 
     # add sub scores
     results_df["kni_batch"] = results_df["kni_count"] / results_df["batch_count_knn"]
     results_df["acc_knn"] = results_df["acc_count_knn"] / results_df["batch_count_knn"]
     results_df["diverse_pass_knn"] = results_df["diverse_pass_count_knn"] / results_df["batch_count_knn"]
+
+    # summarize non diverse cells
+    not_diverse_df = pd.DataFrame(not_diverse_df)
+    not_diverse_df['cell_type'] = not_diverse_df['cell_type']
+    not_diverse_df['predicted_cell_type'] = not_diverse_df['predicted_cell_type']
+    not_diverse_df['batch_name'] = obs_df[batch_col].cat.categories[not_diverse_df['batch_name']]
+    not_diverse_df['cell_type'] = obs_df[cell_type_col].cat.categories[not_diverse_df['cell_type']]
+    not_diverse_df['predicted_cell_type'] = obs_df[cell_type_col].cat.categories[not_diverse_df['predicted_cell_type']]
+    # split by prediction
+    non_diverse_correctly_predicted = not_diverse_df[not_diverse_df['cell_type'] == not_diverse_df['predicted_cell_type']]
+    non_diverse_incorrectly_predicted = not_diverse_df[not_diverse_df['cell_type'] != not_diverse_df['predicted_cell_type']]
+    # drop prediction 
+    non_diverse_correctly_predicted.drop('predicted_cell_type', axis=1, inplace=True)
+    non_diverse_incorrectly_predicted.drop('predicted_cell_type', axis=1, inplace=True)
+    # group by batch and cell type and count
+    non_diverse_correctly_predicted = non_diverse_correctly_predicted.groupby(['batch_name', 'cell_type']).size().reset_index(name='counts')
+    non_diverse_incorrectly_predicted = non_diverse_incorrectly_predicted.groupby(['batch_name', 'cell_type']).size().reset_index(name='counts')
+
 
     return {
         'acc_knn': acc_total,
@@ -198,8 +243,12 @@ def calc_kni_score(
         'pct_cells_with_diverse_knn': diverse_pass_total, 
         'confusion_matrix': acc_conf_mat,
         'kni_confusion_matrix': kni_conf_mat,
-        'results_by_batch': results_df
+        'results_by_batch': results_df,
+        'non_diverse': not_diverse_df,
+        'non_diverse_correctly_predicted': non_diverse_correctly_predicted,
+        'non_diverse_incorrectly_predicted': non_diverse_incorrectly_predicted
         }
+
 
 def calc_rbni_score(
     embeddings_df: pd.DataFrame,
