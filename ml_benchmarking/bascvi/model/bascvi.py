@@ -90,6 +90,8 @@ class BAScVI(nn.Module):
                 self.macrogene_matrix = torch.nn.Parameter(macrogene_matrix, requires_grad=True)
                 # unfreeze the macrogene matrix
                 assert self.macrogene_matrix.requires_grad == True
+            
+            self.mg_norm_layer = nn.LayerNorm(self.macrogene_matrix.shape[1])
 
             print("Using macrogene matrix:", self.macrogene_matrix.shape, "hidden dim:", self.macrogene_hidden_dim, "frozen:", freeze_macrogene_matrix)
         else:
@@ -236,6 +238,7 @@ class BAScVI(nn.Module):
             x_ = torch.log(1 + self.scaling_factor * x / x.sum(dim=1, keepdim=True))
 
         if self.macrogene_matrix is not None:
+            assert self.normalize_total == False & self.log_variational, "Cannot use macrogene matrix without log_variational set to true and normalize_total set to False"
             if self.macrogene_hidden_dim is not None:
                 mg_mat = self.macrogene_matrix_transform(self.macrogene_matrix)
                 # add relu
@@ -244,6 +247,8 @@ class BAScVI(nn.Module):
                 mg_mat = self.macrogene_matrix
 
             x_ = nn.functional.linear(x_, mg_mat.transpose(0, 1))
+            x_ = self.mg_norm_layer(x_)
+            x_ = nn.functional.relu(x_)
 
         inference_outputs = self.inference(x_, batch_vec)
 
