@@ -204,13 +204,27 @@ class BAScVITrainer(pl.LightningModule):
     
     @property
     def disc_warmup_weight(self):
-        """Scaling factor on KL divergence during training."""
+        """Scaling factor on discriminator loss during training."""
+
+        def exp_warmup_scale(epoch, max_epochs):
+            """Returns a scaling factor between 0.5 and 1.0"""
+            alpha = 4
+            progress = epoch / max_epochs
+            return 0.5 + 0.5 * (1 - np.exp(-alpha * progress))
+
         epoch_criterion = self.n_epochs_discriminator_warmup is not None
         step_criterion = self.n_steps_discriminator_warmup is not None
+        exponential_criterion = self.training_args.get("exponential_disc_warmup")
         if epoch_criterion:
-            disc_warmup_weight = min(1.0, self.current_epoch / self.n_epochs_discriminator_warmup)
+            if exponential_criterion:
+                disc_warmup_weight = min(1.0, exp_warmup_scale(self.current_epoch, self.n_epochs_discriminator_warmup))
+            else:
+                disc_warmup_weight = min(1.0, self.current_epoch / self.n_epochs_discriminator_warmup)
         elif step_criterion:
-            disc_warmup_weight = min(1.0, self.global_step / self.n_steps_discriminator_warmup)
+            if exponential_criterion:
+                disc_warmup_weight = min(1.0, exp_warmup_scale(self.global_step, self.n_steps_discriminator_warmup))
+            else:
+                disc_warmup_weight = min(1.0, self.global_step / self.n_steps_discriminator_warmup)
         else:
             disc_warmup_weight = 1.0
         return disc_warmup_weight
@@ -252,6 +266,9 @@ class BAScVITrainer(pl.LightningModule):
 
             # add train to log_dict and log
             g_losses = {f"train_{k}": v for k, v in g_losses.items()}
+
+            g_losses["disc_warmup_weight"] = self.disc_warmup_weight
+            
             self.log_dict(g_losses)
 
         return g_losses
@@ -415,7 +432,7 @@ class BAScVITrainer(pl.LightningModule):
             p_opt = torch.optim.Adam(p_params, lr=1e-2, eps=1e-8)        
             plr_scheduler = StepLR(p_opt, **self.training_args.get("step_lr_scheduler"))        
             
-            return [config,{"optimizer": p_opt, "lr_scheduler":plr_scheduler}]
+            return [config,{"optimizer": p_opt, "lr_scheduler": plr_scheduler}]
             
         else:
             print("Adversarial Training: False")
