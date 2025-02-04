@@ -50,19 +50,6 @@ if __name__ == '__main__':
                 "training_args": {"disc_loss_weight": 5000.0,}
             }
         },
-        {
-            "emb_trainer": {
-                'model_args': {"n_latent": 10, "n_layers": 1, "n_hidden": 2048},
-                "training_args": {"disc_loss_weight": 5000.0,}
-            }
-        },
-        {
-            "emb_trainer": {
-                'model_args': {"n_latent": 10, "n_layers": 4, "n_hidden": 512},
-                "training_args": {"disc_loss_weight": 5000.0,}
-            }
-        },
-
 
 
     ]
