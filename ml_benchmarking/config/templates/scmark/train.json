@@ -8,14 +8,14 @@
     "datamodule": {
         "class_name": "TileDBSomaIterDataModule",
         "options": {
-            "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/scmark",
-            "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/human_mouse_genes_to_use_macrogenes.txt",
-            "block_size": 20000,
+            "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scmark",
+            "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/gene_lists/genes_2ksamples_10cells.txt",
+            "block_size": 1000,
             "calc_library": false,
             "random_seed": 42,
             "dataloader_args": {
                 "batch_size": 64,
-                "num_workers": 4,
+                "num_workers": 16,
                 "pin_memory": true
             }
         }
@@ -41,7 +41,7 @@
             "optimizer": {
                 "lr": 0.0001,
                 "weight_decay": 1e-4,
-                "eps": 0.01
+                "eps": 1e-8
             },
             "step_lr_scheduler": {
                 "step_size": 100,
