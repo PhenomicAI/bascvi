@@ -1,25 +1,16 @@
 from time import time
 
-from argparse import ArgumentParser
-import os
-from typing import Dict
-import logging
 import json
-import pandas as pd
 
-from pytorch_lightning import Trainer
-import torch
-
-from bascvi.datamodule import TileDBSomaDataModule, TileDBSomaIterDataModule
-from bascvi.utils.utils import umap_calc_and_save_html
+from bascvi.datamodule.soma.datamodule import TileDBSomaIterDataModule
 
 
-with open("/home/ubuntu/large-bascivi/config/template/scmark_gf_emb.json") as json_file:
+with open("/home/ubuntu/paper_repo/bascvi/ml_benchmarking/config/multispecies_paper/train_ms_saturn_3k.json") as json_file:
         cfg = json.load(json_file)
 
-#cfg["datamodule"]["root_dir"] = cfg["pl_trainer"]["default_root_dir"]
+cfg["datamodule"]["options"]["root_dir"] = "."
 
-soma_datamodule = EmbDatamodule(**cfg["datamodule"])
+soma_datamodule = TileDBSomaIterDataModule(**cfg["datamodule"]["options"])
 
 print("Set up data module....")
 soma_datamodule.setup(stage="fit")
