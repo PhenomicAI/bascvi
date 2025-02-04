@@ -46,12 +46,12 @@ if __name__ == '__main__':
     sweep_config_list = [
         {
             "emb_trainer": {
-                'model_args': {"n_latent": 10, "n_layers": 1, "n_hidden": 512},
-                "training_args": {"disc_loss_weight": 5000.0,}
+                "training_args": {"disc_loss_weight": 10000.0, "exponential_disc_warmup": True},
+                "model_args": {"n_hidden": 256, "n_layers": 1}
             }
         },
 
 
     ]
 
-    run_sweep(base_config, sweep_config_list, base_root_dir="/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/multispecies_04Jan2025_3k_model_size_new_norm")
+    run_sweep(base_config, sweep_config_list, base_root_dir="/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/multispecies_04Jan2025_3k/paper_sweep")

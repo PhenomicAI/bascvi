@@ -222,8 +222,6 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         print(len(self.filter_pass_soma_ids), " cells passed final filter.")
         self.library_calcs.set_index("sample_idx")
 
-
-
     def setup(self, stage: Optional[str] = None):
         # read metadata
         column_names = ["soma_joinid", "barcode", self.batch_keys["study"], self.batch_keys["sample"], self.batch_keys["modality"]]
@@ -271,8 +269,6 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         # BATCH
 
         # TODO: ensure studies are unique across all modalities. is this necessary?
-
-
 
 
         # GENES
@@ -437,7 +433,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         if self.num_total_blocks < self.dataloader_args['num_workers']:
             self.dataloader_args['num_workers'] = self.num_total_blocks
 
-        print(self.obs_df.study_name.value_counts(dropna=False))
+        # print(self.obs_df.study_name.value_counts(dropna=False))
 
         self.feature_presence_matrix = self.feature_presence_matrix[:, self.genes_to_use]
      
