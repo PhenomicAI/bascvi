@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from pathlib import Path
 
-from bascvi.utils.utils import calc_kni_score, calc_rbni_score
+from ml_benchmarking.bascvi.utils.utils import calc_kni_score, calc_rbni_score
 
 import tiledbsoma as soma
 import tiledb 

@@ -1,7 +1,9 @@
-from .run_config import run_config
-from .run_metrics_scoring import run_metrics_on_folder
 import os
 import json
+
+from ml_benchmarking.scripts.run_config import run_config
+from ml_benchmarking.scripts.run_metrics_scoring import run_metrics_on_folder
+
 
 def run_predict_on_folder(base_config: dict, root_dir: str):
     # get all the directories in the root_dir with a file that starts with pred

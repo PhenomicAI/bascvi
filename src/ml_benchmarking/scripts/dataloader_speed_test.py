@@ -1,17 +1,16 @@
-from time import time
-
-from argparse import ArgumentParser
 import os
-from typing import Dict
-import logging
 import json
-import pandas as pd
+import logging
+from time import time
+from typing import Dict
+from argparse import ArgumentParser
 
-from pytorch_lightning import Trainer
 import torch
+import pandas as pd
+from pytorch_lightning import Trainer
 
-from bascvi.datamodule import TileDBSomaDataModule, TileDBSomaIterDataModule
-from bascvi.utils.utils import umap_calc_and_save_html
+from ml_benchmarking.bascvi.datamodule import TileDBSomaDataModule, TileDBSomaIterDataModule
+from ml_benchmarking.bascvi.utils.utils import umap_calc_and_save_html
 
 
 with open("/home/ubuntu/large-bascivi/config/template/scmark_gf_emb.json") as json_file:
