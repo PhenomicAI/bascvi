@@ -252,7 +252,7 @@ class BAScVI(nn.Module):
         inference_outputs = self.inference(x_, batch_vec)
 
         if encode:
-            return inference_outputs
+            return inference_outputs, None
 
         z = inference_outputs["z"]
 

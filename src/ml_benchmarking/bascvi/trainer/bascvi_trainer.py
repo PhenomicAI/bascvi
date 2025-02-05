@@ -368,9 +368,9 @@ class BAScVITrainer(pl.LightningModule):
         return self.validation_step(batch, batch_idx)
     
     def predict_step(self, batch, batch_idx, give_mean: bool = True):
-        encoder_outputs = self(batch, encode=True, predict_mode=True)
-        qz_m = encoder_outputs["qz_m"]
-        z = encoder_outputs["z"]
+        inference_outputs, generative_outputs = self(batch, encode=True, predict_mode=True)
+        qz_m = inference_outputs["qz_m"]
+        z = inference_outputs["z"]
 
         if give_mean:
             z = qz_m
