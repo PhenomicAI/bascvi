@@ -7,7 +7,7 @@ import pickle as pkl
 import re
 import os
 
-from bascvi.utils.utils import umap_calc_and_save_html
+from ml_benchmarking.bascvi.utils.utils import umap_calc_and_save_html
 import tiledbsoma as soma
 
 from random import sample

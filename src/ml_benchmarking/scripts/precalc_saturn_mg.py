@@ -1,6 +1,6 @@
-from bascvi.utils.protein_embeddings import get_centroid_distance_matrix
-from bascvi.datamodule.soma.soma_helpers import open_soma_experiment
-from bascvi.datamodule.soma.datamodule import TileDBSomaIterDataModule
+from ml_benchmarking.bascvi.utils.protein_embeddings import get_centroid_distance_matrix
+from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
+from ml_benchmarking.bascvi.datamodule.soma.datamodule import TileDBSomaIterDataModule
 
 import json
 

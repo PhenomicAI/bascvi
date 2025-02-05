@@ -1,9 +1,10 @@
-from .run_config import run_config
-from .run_metrics_scoring import run_metrics_on_folder
-
 import os
 import json
 import copy
+
+from ml_benchmarking.scripts.run_config import run_config
+from ml_benchmarking.scripts.run_metrics_scoring import run_metrics_on_folder
+
 
 def recursive_update(base_dict, mod_dict):
     """
