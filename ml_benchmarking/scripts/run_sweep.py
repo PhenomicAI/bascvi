@@ -46,12 +46,25 @@ if __name__ == '__main__':
     sweep_config_list = [
         {
             "emb_trainer": {
-                "training_args": {"disc_loss_weight": 10000.0, "exponential_disc_warmup": True},
-                "model_args": {"n_hidden": 256, "n_layers": 1}
+                "training_args": {
+                    "disc_loss_weight": 10000.0, 
+                    "sigmoidal_disc_warmup": True, 
+                    "n_steps_discriminator_warmup": 200000
+                },
             }
         },
+        {
+            "emb_trainer": {
+                "training_args": {
+                    "disc_loss_weight": 10000.0, 
+                    "sigmoidal_disc_warmup": True, 
+                    "n_steps_discriminator_warmup": 100000
+                },
+            }
+        },
+        
 
 
     ]
 
-    run_sweep(base_config, sweep_config_list, base_root_dir="/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/multispecies_04Jan2025_3k/paper_sweep")
+    run_sweep(base_config, sweep_config_list, base_root_dir="/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/multispecies_04Jan2025_3k/sigmoid_disc_warmup")

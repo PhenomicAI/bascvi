@@ -212,17 +212,24 @@ class BAScVITrainer(pl.LightningModule):
             progress = epoch / max_epochs
             return 0.5 + 0.5 * (1 - np.exp(-alpha * progress))
 
+        def sigmoid_warmup(epoch, max_epochs):
+            """Returns a scaling factor between 0.0 and 1.0"""
+            beta = 10
+            T = 1
+            progress = epoch / max_epochs
+            return 1 / (1 + np.exp(-beta * (progress - T / 2)))
+
         epoch_criterion = self.n_epochs_discriminator_warmup is not None
         step_criterion = self.n_steps_discriminator_warmup is not None
-        exponential_criterion = self.training_args.get("exponential_disc_warmup")
+        sigmoidal_criterion = self.training_args.get("sigmoidal_disc_warmup")
         if epoch_criterion:
-            if exponential_criterion:
-                disc_warmup_weight = min(1.0, exp_warmup_scale(self.current_epoch, self.n_epochs_discriminator_warmup))
+            if sigmoidal_criterion:
+                disc_warmup_weight = min(1.0, sigmoid_warmup(self.current_epoch, self.n_epochs_discriminator_warmup))
             else:
                 disc_warmup_weight = min(1.0, self.current_epoch / self.n_epochs_discriminator_warmup)
         elif step_criterion:
-            if exponential_criterion:
-                disc_warmup_weight = min(1.0, exp_warmup_scale(self.global_step, self.n_steps_discriminator_warmup))
+            if sigmoidal_criterion:
+                disc_warmup_weight = min(1.0, sigmoid_warmup(self.global_step, self.n_steps_discriminator_warmup))
             else:
                 disc_warmup_weight = min(1.0, self.global_step / self.n_steps_discriminator_warmup)
         else:
@@ -270,6 +277,9 @@ class BAScVITrainer(pl.LightningModule):
             g_losses["disc_warmup_weight"] = self.disc_warmup_weight
             
             self.log_dict(g_losses)
+
+        # log discriminator loss weight
+        self.log("disc_warmup_weight", self.disc_warmup_weight)
 
         return g_losses
 
