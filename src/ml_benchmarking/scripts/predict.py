@@ -25,7 +25,8 @@ def predict(config: Dict):
     EmbeddingTrainer = getattr(module, config["trainer_class_name"] if "trainer_class_name" in config else "BAScVITrainer")
 
     # Load the model from checkpoint
-    checkpoint = torch.load(config["pretrained_model_path"])
+    map_location = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    checkpoint = torch.load(config["pretrained_model_path"], map_location, weights_only=False)
     if "gene_list" not in checkpoint['hyper_parameters']:
         raise ValueError("Pretrained model must have a 'gene_list' key in hyper_parameters")
         with open("path_to_gene_list", 'r') as f:
