@@ -404,6 +404,9 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             print("Filtering cells with nnz < 300, ", pass_filter.sum(), " cells")
             self.obs_df = self.obs_df[pass_filter] 
 
+        self.feature_presence_matrix = self.feature_presence_matrix[:, self.genes_to_use]
+
+
         # library calcs
         try:
             with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
@@ -435,7 +438,6 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
         # print(self.obs_df.study_name.value_counts(dropna=False))
 
-        self.feature_presence_matrix = self.feature_presence_matrix[:, self.genes_to_use]
      
         self.num_cells = self.obs_df.shape[0]
 
