@@ -263,7 +263,7 @@ class BAScVI(nn.Module):
             generative_outputs = self.generative(z, batch_vec)
 
 
-        if compute_loss:
+        if compute_loss and not predict_mode:
             losses = self.loss(
                 x,
                 local_l_mean,
