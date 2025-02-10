@@ -71,7 +71,12 @@ def predict(config: Dict):
     trainer = Trainer(default_root_dir=config["run_save_dir"], accelerator="auto")
 
     logger.info("--------------Embedding prediction on full dataset-------------")
-    predictions = trainer.predict(model, datamodule=datamodule)
+    model.eval()
+    logger.info("model in eval mode")
+    dataloader = datamodule.predict_dataloader()
+    logger.info("predict dataloader created")
+    predictions = trainer.predict(model, dataloaders=dataloader)
+    logger.info("predictions made")
     embeddings = torch.cat(predictions, dim=0).detach().cpu().numpy()
 
     if config["datamodule"]["class_name"] == "TileDBSomaIterDataModule":
