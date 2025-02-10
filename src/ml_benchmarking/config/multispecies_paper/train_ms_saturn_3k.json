@@ -1,7 +1,9 @@
 {
   "mode": "train",
 
-  "wandb_project_name": "multispecies_04Jan2025_3k",
+  "wandb_project_name": "multispecies_04Jan2025_3k_new",
+
+  "run_save_dir": "/home/ubuntu/paper_repo/bascvi/src/ml_benchmarking/runs/multispecies_04Jan2025_3k_new/",
 
   "datamodule": {
     "class_name": "TileDBSomaIterDataModule",
@@ -10,9 +12,9 @@
       "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/barcode_lists/multispecies_04Jan2025_train_barcodes.pkl",
       "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/gene_lists/multispecies_04Jan2025_genes_to_use_macrogenes.txt",
       "block_size": 1000,
-      "random_seed": 42,
+      "random_seed": 1,
       "dataloader_args": {
-        "batch_size": 128,
+        "batch_size": 64,
         "num_workers": 16,
         "pin_memory": true
       },
@@ -34,7 +36,7 @@
     "model_args": {
       "n_hidden": 512,
       "n_latent": 10,
-      "n_layers": 1,
+      "n_layers": 3,
       "scaling_factor": 10000.0,
       "init_weights": true,
       "use_library": true,
@@ -43,28 +45,36 @@
       "log_variational": true
     },
     "training_args": {
-      "n_steps_discriminator_warmup": 40000,
-      "disc_loss_weight": 5000.0,
       "kl_loss_weight": 1.0,
+      "disc_loss_weight": 10.0,
+
+      "n_steps_kl_warmup": 10000,
+
+      "n_steps_discriminator_warmup": 500000,
+      "sigmoidal_disc_warmup": true, 
+
       "save_validation_umaps": true,
-      "optimizer": {
-        "lr": 7e-5,
-        "weight_decay": 2e-6
+      "run_validation_metrics": true,
+
+      "vae_optimizer": {
+        "lr": 1e-4,
+        "weight_decay": 1e-5
       },
-      "step_lr_scheduler": {
-        "step_size": 10,
-        "gamma": 0.5
+      "discriminator_optimizer": {
+        "lr": 1e-4,
+        "weight_decay": 1e-5
       },
+
       "train_library": true,
       "train_adversarial": true
     },
     "callbacks_args": {
       "model_checkpoint": {
-        "monitor": "val_loss",
+        "monitor": "val_loss/loss",
         "mode": "min"
       },
       "early_stopping": {
-        "monitor": "val_loss",
+        "monitor": "val_loss/loss",
         "patience": 5,
         "mode": "min"
       }
