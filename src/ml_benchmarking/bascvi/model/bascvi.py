@@ -11,6 +11,8 @@ from ml_benchmarking.bascvi.model.bencoder import BEncoder
 from ml_benchmarking.bascvi.model.encoder import Encoder
 from ml_benchmarking.bascvi.model.distributions import ZeroInflatedNegativeBinomial
 
+import numpy as np
+
 
 class BAScVI(nn.Module):
 
@@ -22,8 +24,8 @@ class BAScVI(nn.Module):
     ----------
     n_input : int
         Number of input genes
-    n_batch : int, optional
-        Number of batches, if 0, no batch correction is performed, by default 0
+    batch_level_sizes : list
+        Number of batches
     n_hidden : int, optional
         Number of nodes per hidden layer, by default 128
     n_latent : int, optional
@@ -39,7 +41,7 @@ class BAScVI(nn.Module):
     def __init__(
         self,
         n_input: int,
-        n_batch: int,
+        batch_level_sizes: List[int],
         n_hidden: int = 128,
         n_latent: int = 10,
         n_layers: int = 1,
@@ -59,7 +61,8 @@ class BAScVI(nn.Module):
         super().__init__()
 
         self.n_input = n_input
-        self.n_batch = n_batch
+        self.batch_level_sizes = batch_level_sizes
+        self.n_batch = np.sum(batch_level_sizes)
         self.n_hidden = n_hidden
         self.n_latent = n_latent
         self.n_layers = n_layers
@@ -110,7 +113,7 @@ class BAScVI(nn.Module):
         
         self.z_encoder = BEncoder(
             n_input=n_input_encoder,
-            n_batch=n_batch,
+            n_batch=self.n_batch,
             n_output=n_latent,
             n_layers=n_layers,
             n_hidden=n_hidden,
@@ -120,7 +123,7 @@ class BAScVI(nn.Module):
         if self.use_library:
             self.l_encoder = Encoder(
                 n_input=n_input_encoder,
-                n_batch=n_batch,
+                n_batch=self.n_batch,
                 n_output=1,
                 n_layers=1,
                 n_hidden=n_hidden,
@@ -131,22 +134,16 @@ class BAScVI(nn.Module):
         n_input_decoder = n_latent
         self.decoder = BDecoder(
             n_input=n_input_decoder,
-            n_batch=n_batch,
+            n_batch=self.n_batch,
             n_output=n_input,
             n_layers=n_layers,
             n_hidden=n_hidden,
         )
         
-        self.z_predictor = BPredictor(
-            n_input=n_hidden,
-            n_batch=n_batch,
-        )
-        self.x_predictor = BPredictor(
-            n_input=n_hidden,
-            n_batch=n_batch,
-        )
+        self.z_predictors = nn.ModuleList([BPredictor(n_input=n_hidden, n_batch=n_batch, n_hidden=n_hidden) for n_batch in batch_level_sizes])
+        self.x_predictors = nn.ModuleList([BPredictor(n_input=n_hidden, n_batch=n_batch, n_hidden=n_hidden) for n_batch in batch_level_sizes])
         
-        self.loss_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
+        self.loss_cce = torch.nn.CrossEntropyLoss()
         
         if init_weights:
             self.apply(self.init_weights)
@@ -176,14 +173,16 @@ class BAScVI(nn.Module):
         
         qz_m, qz_v, z, x_pred = self.z_encoder(x, batch_emb)
 
-        x_pred = self.x_predictor(x_pred)
+        x_preds = []
+        for i, x_predictor in enumerate(self.x_predictors):
+            x_preds.append(x_predictor(x_pred))
 
         if self.use_library:
             ql_m, ql_v, library_encoded = self.l_encoder(x, batch_emb)
-            outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, ql_m=ql_m, ql_v=ql_v, library=library_encoded, x_pred=x_pred)
+            outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, ql_m=ql_m, ql_v=ql_v, library=library_encoded, x_preds=x_preds)
             
         else:
-            outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, x_pred=x_pred)
+            outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, x_preds=x_preds)
 
         return outputs
 
@@ -203,14 +202,16 @@ class BAScVI(nn.Module):
         px_r = self.px_r
         px_r = torch.exp(px_r)       
 
-        z_pred = self.z_predictor(z_pred)
+        z_preds = []
+        for i, z_predictor in enumerate(self.z_predictors):
+            z_preds.append(z_predictor(z_pred))
 
         counts_pred = ZeroInflatedNegativeBinomial(mu=px_rate, theta=px_r, zi_logits=px_dropout).sample()
         
-        return dict(px_scale=px_scale, px_r=px_r, px_rate=px_rate, px_dropout=px_dropout, z_pred=z_pred, counts_pred=counts_pred)
+        return dict(px_scale=px_scale, px_r=px_r, px_rate=px_rate, px_dropout=px_dropout, z_preds=z_preds, counts_pred=counts_pred)
 
     def forward(
-        self, batch: dict, kl_weight: float = 1.0, disc_loss_weight: float = 10.0, disc_warmup_weight: float = 1.0, kl_loss_weight: float = 1.0, compute_loss: bool = True, encode: bool = False, optimizer_idx=0, predict_mode=False
+        self, batch: dict, kl_warmup_weight: float = 1.0, disc_loss_weight: float = 10.0, disc_warmup_weight: float = 1.0, kl_loss_weight: float = 1.0, compute_loss: bool = True, encode: bool = False, optimizer_idx=0, predict_mode=False
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, Dict],]:
         
         x = batch["x"]
@@ -232,14 +233,15 @@ class BAScVI(nn.Module):
 
 
         x_ = x
-        
+
         if self.log_variational:
             x_ = torch.log(1 + x)
         elif self.normalize_total:
-            x_ = torch.log(1 + self.scaling_factor * x / x.sum(dim=1, keepdim=True))
+            x_ = torch.log(1 + self.scaling_factor * x / (x.sum(dim=1, keepdim=True) + 1e-6))
 
         if self.macrogene_matrix is not None:
             assert self.normalize_total == False & self.log_variational, "Cannot use macrogene matrix without log_variational set to true and normalize_total set to False"
+
             if self.macrogene_hidden_dim is not None:
                 mg_mat = self.macrogene_matrix_transform(self.macrogene_matrix)
                 # add relu
@@ -251,7 +253,9 @@ class BAScVI(nn.Module):
             x_ = self.mg_norm_layer(x_)
             x_ = nn.functional.relu(x_)
 
+
         inference_outputs = self.inference(x_, batch_vec)
+
 
         if encode:
             return inference_outputs, None
@@ -274,7 +278,7 @@ class BAScVI(nn.Module):
                 generative_outputs,
                 batch_vecs=[modality_vec, study_vec, sample_vec],
                 feature_presence_mask=batch["feature_presence_mask"],
-                kl_weight=kl_weight,
+                kl_warmup_weight=kl_warmup_weight,
                 disc_loss_weight=disc_loss_weight,
                 disc_warmup_weight=disc_warmup_weight,
                 kl_loss_weight=kl_loss_weight,
@@ -293,10 +297,10 @@ class BAScVI(nn.Module):
         generative_outputs,
         batch_vecs: List[torch.Tensor],
         feature_presence_mask,
-        kl_weight: float = 1.0,
         disc_loss_weight: float = 10.0,
         disc_warmup_weight: float = 1.0,
         kl_loss_weight: float = 1.0,
+        kl_warmup_weight: float = 1.0,
         optimizer_idx=0,
     ) -> Dict:
         """Compute the loss for a minibatch of data.
@@ -333,49 +337,64 @@ class BAScVI(nn.Module):
                     Normal(local_l_mean, torch.sqrt(local_l_var + 1e-6)),
                 ).sum(dim=1)
 
-                weighted_kl_local = kl_divergence_z + kl_weight * kl_divergence_l
+                weighted_kl_local = kl_divergence_z + kl_divergence_l
             
             
-            z_pred = generative_outputs["z_pred"]
-            x_pred = inference_outputs["x_pred"]
+            z_preds = generative_outputs["z_preds"]
+            x_preds = inference_outputs["x_preds"]
 
-            
-            disc_loss_reduced, disc_loss_modality, disc_loss_study, disc_loss_sample = self.get_disc_loss(z_pred, x_pred, batch_vecs)
+            z_disc_loss_reduced, z_disc_losses = self.get_disc_loss(z_preds, batch_vecs)
+            x_disc_loss_reduced, x_disc_losses = self.get_disc_loss(x_preds, batch_vecs)
+
+            disc_loss_reduced = z_disc_loss_reduced + x_disc_loss_reduced
 
             reconst_loss = torch.mean(reconst_loss)
             weighted_kl_local = torch.mean(weighted_kl_local)
 
-            loss = reconst_loss + kl_loss_weight * weighted_kl_local - disc_loss_weight * disc_warmup_weight * disc_loss_reduced 
+            loss = reconst_loss + kl_warmup_weight * kl_loss_weight * weighted_kl_local - disc_loss_weight * disc_warmup_weight * disc_loss_reduced 
 
-            return {
+            loss_dict = {
                 "loss": loss, 
                 "rec_loss": reconst_loss.detach(), 
-                "kl_local": weighted_kl_local.detach(), 
+                "kl_loss": weighted_kl_local.detach(), 
                 "kl_normal": torch.mean(kl_divergence_z).detach(),
                 "kl_library": torch.mean(kl_divergence_l).detach() if self.use_library else 0,
                 "disc_loss": disc_loss_reduced.detach(), 
-                "disc_loss_modality": disc_loss_modality.detach(), 
-                "disc_loss_study": disc_loss_study.detach(), 
-                "disc_loss_sample": disc_loss_sample.detach(),
                 }
+
+            for i, z_disc_loss in enumerate(z_disc_losses):
+                loss_dict[f"disc_loss_z_{i}"] = z_disc_loss.detach()
+
+            for i, x_disc_loss in enumerate(x_disc_losses):
+                loss_dict[f"disc_loss_x_{i}"] = x_disc_loss.detach()
             
         if optimizer_idx == 1:
-
             
-            z_pred = generative_outputs["z_pred"]
-            x_pred = inference_outputs["x_pred"]
-            
-            disc_loss_reduced, disc_loss_modality, disc_loss_study, disc_loss_sample = self.get_disc_loss(z_pred, x_pred, batch_vecs)
+            z_preds = generative_outputs["z_preds"]
+            x_preds = inference_outputs["x_preds"]
 
-            disc_loss_reduced = disc_warmup_weight * disc_loss_weight * disc_loss_reduced
+            z_disc_loss_reduced, z_disc_losses = self.get_disc_loss(z_preds, batch_vecs)
+            x_disc_loss_reduced, x_disc_losses = self.get_disc_loss(x_preds, batch_vecs)
 
-            disc_loss_modality = disc_warmup_weight * disc_loss_weight * disc_loss_modality
-            disc_loss_study = disc_warmup_weight * disc_loss_weight * disc_loss_study
-            disc_loss_sample = disc_warmup_weight * disc_loss_weight * disc_loss_sample
+            disc_loss_reduced = z_disc_loss_reduced + x_disc_loss_reduced
 
+            loss_dict = {
+                "loss": disc_loss_reduced, 
+                "rec_loss": 0, 
+                "kl_loss": 0, 
+                "kl_normal": 0,
+                "kl_library": 0,
+                "disc_loss": disc_loss_reduced.detach(), 
+                }
 
-            return {"loss" : disc_loss_reduced, "rec_loss": 0, "kl_local": 0, "disc_loss": disc_loss_reduced.detach(), "disc_loss_modality": disc_loss_modality.detach(), "disc_loss_study": disc_loss_study.detach(), "disc_loss_sample": disc_loss_sample.detach()}
+            for i, z_disc_loss in enumerate(z_disc_losses):
+                loss_dict[f"disc_loss_z_{i}"] = z_disc_loss.detach()
 
+            for i, x_disc_loss in enumerate(x_disc_losses):
+                loss_dict[f"disc_loss_x_{i}"] = x_disc_loss.detach()
+
+        return loss_dict
+    
     def get_reconstruction_loss(self, x, px_rate, px_r, px_dropout, feature_presence_mask) -> torch.Tensor:
         """Computes reconstruction loss."""
         if self.use_zinb:
@@ -389,22 +408,15 @@ class BAScVI(nn.Module):
         reconst_loss = reconst_loss.sum(dim=-1)
         return reconst_loss
     
-    def get_disc_loss(self, z_pred, x_pred, batch_vecs):
-        """Computes discriminator loss."""
-        batch_vec = torch.cat(batch_vecs, dim=1)
-        
-        # batch adversarial cost z_pred is from the decoder, x_pred is from the encoder. we want to remove batch from both
-        # TODO: question: do we want to remove modality from decoder output? we might want to be able to translate between modalities
-        disc_loss = (self.loss_bce(z_pred, batch_vec.float()) + self.loss_bce(x_pred, batch_vec.float()))
+    def get_disc_loss(self, preds, batch_vecs):
+            disc_losses = []
+            for i, pred in enumerate(preds):
+                disc_losses.append(self.loss_cce(pred, batch_vecs[i].argmax(dim=1)))
 
-        # ensure we give equal weight to each batch dimension (modality, study, sample)
-        disc_loss_modality = torch.mean(torch.mean(disc_loss[ : , :batch_vecs[0].shape[0]], dim=1))
-        disc_loss_study = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0]:batch_vecs[0].shape[0] + batch_vecs[1].shape[0]], dim=1))
-        disc_loss_sample = torch.mean(torch.mean(disc_loss[ : , batch_vecs[0].shape[0] + batch_vecs[1].shape[0]:], dim=1))
+            # TODO: add weights for the different losses?
+            disc_loss_reduced = torch.mean(torch.stack(disc_losses))
 
-        disc_loss_reduced = torch.mean(torch.mean(disc_loss, dim=1))
-
-        return disc_loss_reduced, disc_loss_modality, disc_loss_study, disc_loss_sample
+            return disc_loss_reduced, disc_losses
 
 
         
@@ -424,14 +436,14 @@ class BPredictor(nn.Module):
                     n_input,
                     n_hidden,
                     ),
-            nn.BatchNorm1d(n_hidden, eps=1e-5),
+            nn.BatchNorm1d(n_hidden),
             nn.LeakyReLU(),
             
             nn.Linear(
                     n_hidden,
                     n_batch,
                     ),
-            nn.BatchNorm1d(n_batch, eps=1e-5),
+            nn.BatchNorm1d(n_batch),
             )
 
     def forward(

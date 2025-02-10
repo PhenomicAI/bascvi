@@ -56,12 +56,12 @@ def train(config: Dict):
 
     # set the number of input genes and batches in the model from the datamodule
     config['emb_trainer']['model_args']['n_input'] = datamodule.num_genes
-    config['emb_trainer']['model_args']['n_batch'] = datamodule.num_batches
+    config['emb_trainer']['model_args']['batch_level_sizes'] = datamodule.batch_level_sizes
 
     config["emb_trainer"]["soma_experiment_uri"] = datamodule.soma_experiment_uri
 
     # dynamically import trainer class
-    module = __import__("bascvi.trainer", globals(), locals(), [config["trainer_module_name"] if "trainer_module_name" in config else "bascvi_trainer"], 0)
+    module = __import__("ml_benchmarking.bascvi.trainer", globals(), locals(), [config["trainer_module_name"] if "trainer_module_name" in config else "bascvi_trainer"], 0)
     EmbeddingTrainer = getattr(module, config["trainer_class_name"] if "trainer_class_name" in config else "BAScVITrainer")
 
     if config.get("load_from_checkpoint"):
@@ -107,7 +107,7 @@ def train(config: Dict):
     # elif config["datamodule_class_name"] == "EmbDatamodule":
     #     datamodule = EmbDatamodule(**cfg["datamodule"])
 
-    datamodule.pretrained_batch_size = config['emb_trainer']['model_args']['n_batch']
+    datamodule.pretrained_batch_size = datamodule.num_batches
     datamodule.setup(stage="predict")
 
     predictions = trainer.predict(model, datamodule=datamodule)

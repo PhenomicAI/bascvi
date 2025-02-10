@@ -4,6 +4,11 @@ import torch.nn as nn
 from torch.distributions import Normal
 
 def reparameterize_gaussian(mu, var):
+    if torch.isnan(mu).any() or torch.isnan(var).any():
+        print("NaN detected in reparameterization: mu or var contains NaN!")
+        raise ValueError("NaN detected in reparameterization!")
+
+    var = torch.clamp(var, min=1e-6)  # Ensure variance is positive
     return Normal(mu, var.sqrt()).rsample()
 
 
@@ -54,7 +59,7 @@ class Encoder(nn.Module):
                                 n_in + n_batch,
                                 n_out,
                             ),
-                            nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001),
+                            nn.LayerNorm(n_out), #nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001),
                             nn.ReLU(),
                             nn.Dropout(p=dropout_rate),
                         ),

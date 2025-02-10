@@ -445,6 +445,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         print('# Studies: ', self.num_studies)
         print('# Samples: ', self.num_samples)
 
+        self.batch_level_sizes = [self.num_modalities, self.num_studies, self.num_samples]
+
         print("Obs has ", self.obs_df.shape[0], " cells, ", self.obs_df.soma_joinid.nunique(), " unique soma_joinids")
         assert self.obs_df.soma_joinid.nunique() == self.obs_df.shape[0]
         assert self.obs_df.cell_idx.nunique() == self.obs_df.shape[0]

@@ -4,6 +4,11 @@ import torch.nn as nn
 from torch.distributions import Normal
 
 def reparameterize_gaussian(mu, var):
+    if torch.isnan(mu).any() or torch.isnan(var).any():
+        print("NaN detected in reparameterization: mu or var contains NaN!")
+        raise ValueError("NaN detected in reparameterization!")
+
+    var = torch.clamp(var, min=1e-6)  # Ensure variance is positive
     return Normal(mu, var.sqrt()).rsample()
 
 
@@ -54,7 +59,7 @@ class BEncoder(nn.Module):
                                 n_in + n_batch,
                                 n_out,
                             ),
-                            nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001),
+                            nn.LayerNorm(n_out), #nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001),
                             nn.ReLU(),
                             nn.Dropout(p=dropout_rate),
                         ),
@@ -94,17 +99,28 @@ class BEncoder(nn.Module):
         3-tuple of :py:class:`torch.Tensor`
             tensors of shape ``(n_latent,)`` for mean and var, and sample
         """
+
+        if torch.isnan(x).any() or torch.isinf(x).any():
+            print("4) NaN detected before BatchNorm!")
+
         for layer in self.encoder:
             x = torch.cat((x, batch_emb-batch_emb), dim=-1)
             x = layer(x)
 
+        if torch.isnan(x).any() or torch.isinf(x).any():
+            print("5) NaN detected before BatchNorm!")
+
         x = self.b_encoder(x)
+
+        if torch.isnan(x).any() or torch.isinf(x).any():
+            print("6) NaN detected before BatchNorm!")
+
         x_pred = x
         
         # Parameters for latent distribution
         q = x
         q_m = self.mean_encoder(q)
-        q_v = torch.exp(self.var_encoder(q)) + self.var_eps
+        q_v = torch.exp(torch.clamp(self.var_encoder(q), min=-10, max=10)) + self.var_eps
         
         latent = reparameterize_gaussian(q_m, q_v)
         return q_m, q_v, latent, x_pred

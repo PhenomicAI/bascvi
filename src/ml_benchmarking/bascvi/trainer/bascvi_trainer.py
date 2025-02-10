@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR
+import torch.nn.utils as utils
+
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
@@ -55,13 +57,13 @@ class BAScVITrainer(pl.LightningModule):
         class_name: str = "BAScVI",
         gene_list: list = None,
         n_input: int = None,
-        n_batch: int = None,
         use_macrogenes: bool = False,
         macrogene_method: str = "concat",
         macrogene_embedding_model: str = "ESM2",
         macrogene_species_list: list = ['human', 'mouse'],
         macrogene_matrix_path: str = None,
         freeze_macrogene_matrix: bool = True,
+        batch_level_sizes: list = None,
     ):
         super().__init__()
         # save hyperparameters in hparams.yaml file
@@ -77,20 +79,24 @@ class BAScVITrainer(pl.LightningModule):
 
         if n_input is not None:
             self.model_args["n_input"] = n_input
-        if n_batch is not None:
-            self.model_args["n_batch"] = n_batch
+        if batch_level_sizes is not None:
+            self.model_args["batch_level_sizes"] = batch_level_sizes
             
         self.training_args = training_args
         self.callbacks_args = callbacks_args
-        self.n_epochs_kl_warmup = training_args.get("n_epochs_kl_warmup")
-        self.disc_loss_weight = training_args.get("disc_loss_weight")
+
         self.kl_loss_weight = training_args.get("kl_loss_weight")
+        self.n_epochs_kl_warmup = training_args.get("n_epochs_kl_warmup")
         self.n_steps_kl_warmup = training_args.get("n_steps_kl_warmup")
+
+        self.disc_loss_weight = training_args.get("disc_loss_weight")
         self.n_epochs_discriminator_warmup = training_args.get("n_epochs_discriminator_warmup")
         self.n_steps_discriminator_warmup = training_args.get("n_steps_discriminator_warmup")
-        self.use_library = training_args.get("use_library")
-        self.save_validation_umaps = training_args.get("save_validation_umaps")
-        self.run_metrics = training_args.get("run_metrics", False)
+
+        self.use_library = training_args.get("use_library", False)
+
+        self.save_validation_umaps = training_args.get("save_validation_umaps", False)
+        self.run_validation_metrics = training_args.get("run_validation_metrics", False)
 
         self.gene_list = gene_list
 
@@ -99,7 +105,6 @@ class BAScVITrainer(pl.LightningModule):
         self.macrogene_embedding_model = macrogene_embedding_model
         self.macrogene_matrix_path = macrogene_matrix_path
         self.freeze_macrogene_matrix = freeze_macrogene_matrix
-
         self.macrogene_species_list = macrogene_species_list
 
         # neat way to dynamically import classes
@@ -180,11 +185,12 @@ class BAScVITrainer(pl.LightningModule):
         return self.vae(batch, **kwargs)
 
     @property
-    def kl_weight(self):
+    def kl_warmup_weight(self):
         """Scaling factor on KL divergence during training."""
         epoch_criterion = self.n_epochs_kl_warmup is not None
         step_criterion = self.n_steps_kl_warmup is not None
-        cyclic_criterion = self.training_args.get("cyclic_kl_period")
+        cyclic_criterion = self.training_args.get("cyclic_kl_period", False)
+
         if epoch_criterion:
             kl_weight = min(1.0, self.current_epoch / self.n_epochs_kl_warmup)
         elif step_criterion:
@@ -193,6 +199,7 @@ class BAScVITrainer(pl.LightningModule):
             kl_weight = get_kld_cycle(self.current_epoch, period=cyclic_criterion)
         else:
             kl_weight = 1.0
+
         return kl_weight
     
     @property
@@ -230,56 +237,56 @@ class BAScVITrainer(pl.LightningModule):
         return disc_warmup_weight
         
     def training_step(self, batch, batch_idx):
+        # do not remove, skips over small minibatches
+        if batch["x"].shape[0] < 3:
+            return None
         
         if self.training_args.get("train_adversarial"):
             g_opt, d_opt = self.optimizers()
 
-            # do not remove, skips over small minibatches
-            if batch["x"].shape[0] < 3:
-                return None
-            
             g_opt.zero_grad()
-            _, _, g_losses = self.forward(batch, kl_weight=self.kl_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
+            _, _, g_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
             self.manual_backward(g_losses['loss'])
+            # clip gradients
+            utils.clip_grad_norm_(self.vae.parameters(), 1.0)
             g_opt.step()
 
-            # add train to log_dict and log
-            g_losses = {f"train_{k}": v for k, v in g_losses.items()}
-            self.log_dict(g_losses)
-
             d_opt.zero_grad()
-            _, _, d_losses = self.forward(batch, kl_weight=self.kl_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=1)
+            _, _, d_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=1)
             self.manual_backward(d_losses['loss'])
+            # clip gradients
+            utils.clip_grad_norm_(self.vae.parameters(), 1.0)
             d_opt.step()
 
         else:
             g_opt = self.optimizers()
-
-            # do not remove, skips over small minibatches
-            if batch["x"].shape[0] < 3:
-                return None
             
             g_opt.zero_grad()
-            _, _, g_losses = self.forward(batch, kl_weight=self.kl_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
+            _, _, g_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
             self.manual_backward(g_losses['loss'])
+            # clip gradients
+            utils.clip_grad_norm_(self.vae.parameters(), 1.0)
             g_opt.step()
 
-            # add train to log_dict and log
-            g_losses = {f"train_{k}": v for k, v in g_losses.items()}
 
-            g_losses["disc_warmup_weight"] = self.disc_warmup_weight
-            
-            self.log_dict(g_losses)
+        # add train to log_dict and log
+        g_losses = {f"train_loss/{k}": v for k, v in g_losses.items()}
+        self.log_dict(g_losses)
 
-        # log discriminator loss weight
-        self.log("disc_warmup_weight", self.disc_warmup_weight)
+        # log trainer metrics
+        self.log("trainer/disc_warmup_weight", self.disc_warmup_weight)
+        self.log("trainer/kl_warmup_weight", self.kl_warmup_weight)
+        self.log("trainer/global_step", self.global_step)
+        # self.log("trainer/lr_vae", self.optimizers().param_groups[0]["lr"])
+        # if self.training_args.get("train_adversarial"):
+        #     self.log("trainer/lr_discriminator", self.optimizers().param_groups[1]["lr"])
 
         return g_losses
 
     def validation_step(self, batch, batch_idx):
-        encoder_outputs, _, g_losses = self.forward(batch, kl_weight=self.kl_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
+        encoder_outputs, _, g_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
         
-        g_losses = {f"val_{k}": v for k, v in g_losses.items()}
+        g_losses = {f"val_loss/{k}": v for k, v in g_losses.items()}
         self.log_dict(g_losses)
 
         qz_m = encoder_outputs["qz_m"]
@@ -343,23 +350,32 @@ class BAScVITrainer(pl.LightningModule):
             for key, fig_path in fig_path_dict.items():
                 metrics_to_log[key] = wandb.Image(fig_path, caption=key)
 
-            if self.run_metrics:
+            if self.run_validation_metrics:
                 # run metrics
                 metrics_dict = {}
-                metrics_dict.update(calc_kni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="study_name", n_neighbours=15, max_prop_same_batch=0.8))
-                metrics_dict.update(calc_rbni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="study_name", radius=1.0, max_prop_same_batch=0.8))
+                metrics_keys = [
+                    'acc_knn', 'kni', 'mean_pct_same_batch_in_knn', 'pct_cells_with_diverse_knn',
+                    'acc_radius', 'rbni', 'mean_pct_same_batch_in_radius', 'pct_cells_with_diverse_radius'
+                    ]
 
-                # add "val_" prefix to keys
-                metrics_dict = {f"val_{k}": v for k, v in metrics_dict.items()}
+                kni_results = calc_kni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="study_name", n_neighbours=15, max_prop_same_batch=0.8, use_faiss=False)
+                rbni_results = calc_rbni_score(embeddings_df.set_index("soma_joinid")[emb_columns], self.obs_df.loc[embeddings_df.index], batch_col="study_name", radius=1.0, max_prop_same_batch=0.8)
+
+                for k, v in kni_results.items():
+                    if k in metrics_keys:
+                        metrics_dict[f"val_metrics/{k}"] = v
+
+                for k, v in rbni_results.items():
+                    if k in metrics_keys:
+                        metrics_dict[f"val_metrics/{k}"] = v
+
                 metrics_to_log.update(metrics_dict)
             
             self.valid_counter += 1
-
             self.validation_step_outputs.clear()
+
         else:
             pass
-
-        metrics_to_log["trainer/global_step"] = self.global_step
 
         wandb.log(metrics_to_log)
 
@@ -368,7 +384,9 @@ class BAScVITrainer(pl.LightningModule):
         return self.validation_step(batch, batch_idx)
     
     def predict_step(self, batch, batch_idx, give_mean: bool = True, return_counts: bool = False):
+        print("Predict step")
         inference_outputs, generative_outputs = self(batch, encode=True, predict_mode=True)
+        print("Predicted")
 
         if return_counts:
             if "soma_joinid" in batch:
@@ -407,7 +425,7 @@ class BAScVITrainer(pl.LightningModule):
                 self.vae.decoder.parameters()
                 )
         
-        optimizer = torch.optim.Adam(g_params, **self.training_args["optimizer"])
+        optimizer = torch.optim.Adam(g_params, **self.training_args["vae_optimizer"])
         config = {"optimizer": optimizer}
 
         if self.training_args.get("reduce_lr_on_plateau"):
@@ -429,18 +447,18 @@ class BAScVITrainer(pl.LightningModule):
         if self.training_args.get("train_adversarial"):
             print("Adversarial Training: True")
             # Discriminator Optimizer
+
+            params = [x.parameters() for x in self.vae.x_predictors]
+            params += [z.parameters() for z in self.vae.z_predictors]
             
             p_params = itertools.chain(
-                self.vae.x_predictor.parameters(),
-                self.vae.z_predictor.parameters(),
-                #self.vae.mu_predictor.parameters(), uncomment for ablation studies
-                #self.vae.emb_predictor.parameters() uncomment for ablation studies
+                *params
                 )
               
-            p_opt = torch.optim.Adam(p_params, lr=1e-2, eps=1e-8)        
-            plr_scheduler = StepLR(p_opt, **self.training_args.get("step_lr_scheduler"))        
+            p_opt = torch.optim.Adam(p_params, **self.training_args["discriminator_optimizer"])        
+            # plr_scheduler = StepLR(p_opt, **self.training_args.get("step_lr_scheduler"))        
             
-            return [config,{"optimizer": p_opt, "lr_scheduler": plr_scheduler}]
+            return [config,{"optimizer": p_opt}]
             
         else:
             print("Adversarial Training: False")

@@ -36,6 +36,46 @@ class FaissRadiusNeighbors:
             
         return vals
 
+class FaissKNeighbors:
+    def __init__(self, n_neighbors=50, nprobe=10, use_gpu=False):
+        self.n_neighbors = n_neighbors
+        self.nprobe = nprobe
+        self.use_gpu = use_gpu
+        self.index = None
+        self.res = faiss.StandardGpuResources() if use_gpu else None
+
+    def fit(self, X, y=None):
+        n_samples, dim = X.shape
+        
+        if n_samples < 1000:
+            index_cpu = faiss.IndexFlatL2(dim)
+        elif n_samples < 10000:
+            index_cpu = faiss.index_factory(dim, "IVF64,Flat")
+        elif n_samples < 100000:
+            index_cpu = faiss.index_factory(dim, "IVF256,Flat")
+        elif n_samples < 1000000:
+            index_cpu = faiss.index_factory(dim, "IVF1024,Flat")
+        else:
+            index_cpu = faiss.index_factory(dim, "IVF4096,Flat")
+
+        if not index_cpu.is_trained:
+            index_cpu.train(X.astype(np.float32))
+        index_cpu.add(X.astype(np.float32))
+
+        # Move to GPU if needed
+        if self.use_gpu:
+            self.index = faiss.index_cpu_to_gpu(self.res, 0, index_cpu)
+        else:
+            self.index = index_cpu
+
+        if hasattr(self.index, 'nprobe'):
+            self.index.nprobe = self.nprobe
+
+    def kneighbors(self, X):
+        distances, indices = self.index.search(X.astype(np.float32), self.n_neighbors)
+        return indices
+
+
 def scale_embeddings(embeddings_df: pd.DataFrame) -> pd.DataFrame:
     """Scales embeddings using quantile normalization
 
@@ -65,7 +105,8 @@ def calc_kni_score(
           batch_col: str = "study_name",
           n_neighbours: int = 50,
           max_prop_same_batch: float = 0.8,
-          exclude_unknown: bool = True
+          exclude_unknown: bool = True,
+          use_faiss: bool = False
           ) -> dict:
     """Calculates KNI score for embeddings
 
@@ -127,12 +168,16 @@ def calc_kni_score(
 
 
     # fit classifier
-    classifier = KNeighborsClassifier(n_neighbors=n_neighbours)
+    if use_faiss == True:
+        raise NotImplementedError("Faiss not implemented for KNN")
+    else:
+        classifier = KNeighborsClassifier(n_neighbors=n_neighbours)
+
 
     classifier.fit(embeddings_df, cell_type_cat)
 
     # get nearest neighbors
-    vals = classifier.kneighbors(n_neighbors=n_neighbours)
+    vals = classifier.kneighbors(embeddings_df)
 
     # calculate KNI score
     knn_ct = cell_type_cat[vals[1].flatten()].reshape(vals[1].shape)
@@ -221,8 +266,8 @@ def calc_kni_score(
     not_diverse_df['cell_type'] = obs_df[cell_type_col].cat.categories[not_diverse_df['cell_type']]
     not_diverse_df['predicted_cell_type'] = obs_df[cell_type_col].cat.categories[not_diverse_df['predicted_cell_type']]
     # split by prediction
-    non_diverse_correctly_predicted = not_diverse_df[not_diverse_df['cell_type'] == not_diverse_df['predicted_cell_type']]
-    non_diverse_incorrectly_predicted = not_diverse_df[not_diverse_df['cell_type'] != not_diverse_df['predicted_cell_type']]
+    non_diverse_correctly_predicted = not_diverse_df.loc[not_diverse_df['cell_type'] == not_diverse_df['predicted_cell_type']]
+    non_diverse_incorrectly_predicted = not_diverse_df.loc[not_diverse_df['cell_type'] != not_diverse_df['predicted_cell_type']]
     # drop prediction 
     non_diverse_correctly_predicted.drop('predicted_cell_type', axis=1, inplace=True)
     non_diverse_incorrectly_predicted.drop('predicted_cell_type', axis=1, inplace=True)
@@ -253,7 +298,7 @@ def calc_rbni_score(
     radius: float = 1.0,
     max_prop_same_batch: float = 0.8,
     exclude_unknown: bool = True
-):
+    ):
     # Reset index
     embeddings_df = embeddings_df.reset_index(drop=True)
     obs_df = obs_df.reset_index(drop=True)
@@ -323,9 +368,9 @@ def calc_rbni_score(
     results_df["batch_name"] = batch_name
 
     # calculate total scores
-    rbni_total = results_df["rbni_count"].sum() / results_df["batch_count_radius"].sum()
-    acc_total = results_df["acc_count_radius"].sum() / results_df["batch_count_radius"].sum()
-    diverse_pass = results_df["diverse_pass_count_radius"].sum() / results_df["batch_count_radius"].sum()
+    rbni_total = results_df["rbni_count"].sum() / (results_df["batch_count_radius"].sum() + 1e-6)
+    acc_total = results_df["acc_count_radius"].sum() / (results_df["batch_count_radius"].sum() + 1e-6)
+    diverse_pass = results_df["diverse_pass_count_radius"].sum() / (results_df["batch_count_radius"].sum() + 1e-6)
     global_prop_same_batch = global_prop_same_batch / embeddings_df.shape[0]
 
     # add sub scores
