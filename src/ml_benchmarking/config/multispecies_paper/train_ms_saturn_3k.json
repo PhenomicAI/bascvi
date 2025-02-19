@@ -11,11 +11,11 @@
       "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/multispecies_04Jan2025",
       "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/barcode_lists/multispecies_04Jan2025_train_barcodes.pkl",
       "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/gene_lists/multispecies_04Jan2025_genes_to_use_macrogenes.txt",
-      "block_size": 1000,
+      "block_size": 5000,
       "random_seed": 1,
       "dataloader_args": {
-        "batch_size": 64,
-        "num_workers": 16,
+        "batch_size": 128,
+        "num_workers": 8,
         "pin_memory": true
       },
       "batch_keys": {
@@ -34,9 +34,10 @@
 
     "freeze_macrogene_matrix": true,
     "model_args": {
-      "n_hidden": 512,
+      "n_hidden": 256,
       "n_latent": 10,
-      "n_layers": 3,
+      "n_layers": 1,
+
       "scaling_factor": 10000.0,
       "init_weights": true,
       "use_library": true,
@@ -45,16 +46,17 @@
       "log_variational": true
     },
     "training_args": {
-      "kl_loss_weight": 1.0,
+      "train_library": true,
+
+      "kl_loss_weight": 0.01,
       "disc_loss_weight": 10.0,
 
-      "n_steps_kl_warmup": 10000,
 
-      "n_steps_discriminator_warmup": 500000,
+      "n_steps_discriminator_warmup": 100000,
       "sigmoidal_disc_warmup": true, 
 
       "save_validation_umaps": true,
-      "run_validation_metrics": true,
+      "run_validation_metrics": false,
 
       "vae_optimizer": {
         "lr": 1e-4,
@@ -65,7 +67,6 @@
         "weight_decay": 1e-5
       },
 
-      "train_library": true,
       "train_adversarial": true
     },
     "callbacks_args": {
@@ -81,6 +82,6 @@
     }
   },
   "pl_trainer": {
-    "check_val_every_n_epoch": 2
+    "check_val_every_n_epoch": 1
   }
 }
