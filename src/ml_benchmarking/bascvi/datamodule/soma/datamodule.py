@@ -4,6 +4,7 @@ import math
 import pickle
 import time
 from typing import Dict, Optional
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -247,6 +248,11 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             temp_df = self.obs_df.drop_duplicates(subset=[self.batch_keys["study"], self.batch_keys['sample']])
             assert temp_df[self.batch_keys["sample"]].nunique() == temp_df.shape[0], "Samples are not unique across studies"
 
+            # ensure barcodes are unique
+            if self.obs_df["barcode"].nunique() != self.obs_df.shape[0]:
+                warnings.warn("barcodes in obs are not unique, making them unique by prefixing with study name + '__'")
+                self.obs_df["barcode"] = self.obs_df["study_name"] + "__" + self.obs_df["barcode"]
+
             
             # create idx columns in obs
             self.obs_df["modality_idx"] = self.obs_df["modality_idx"] if self.batch_keys["modality"] == "modality_idx" else self.obs_df[self.batch_keys["modality"]].astype('category').cat.codes
@@ -366,8 +372,13 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
                 raise ValueError("cannot use both cells_to_use and barcodes_to_use")
             with open(self.barcodes_to_use_path, "rb") as f:
                 barcodes = pickle.load(f)
+
+            # make sure barcodes are unique, raise warning if not
+            if len(set(barcodes)) != len(barcodes):
+                raise ValueError("barcodes in given barcode list are not unique")
+
             self.cells_to_use = self.obs_df.loc[self.obs_df["barcode"].isin(barcodes)]["soma_joinid"].values.tolist()
-            print("read cell list with length ", len(self.cells_to_use))
+            print("read barcode list with", len(self.cells_to_use), "cells found in obs.")
         
         if self.train_column:
             if self.cells_to_use is not None:
