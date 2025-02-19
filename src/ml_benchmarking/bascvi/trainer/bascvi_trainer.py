@@ -287,7 +287,7 @@ class BAScVITrainer(pl.LightningModule):
         encoder_outputs, _, g_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
         
         g_losses = {f"val_loss/{k}": v for k, v in g_losses.items()}
-        self.log_dict(g_losses)
+        self.log_dict(g_losses, on_step=False, on_epoch=True)
 
         qz_m = encoder_outputs["qz_m"]
         z = encoder_outputs["z"]
