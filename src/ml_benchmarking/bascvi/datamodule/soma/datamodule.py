@@ -228,6 +228,10 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         if "nnz" in all_column_names:
             column_names.append("nnz")
 
+        if "log_mean" in all_column_names:
+            column_names.append("log_mean")
+            column_names.append("log_var")
+
         
         if self.train_column:
             column_names.append(self.train_column)
@@ -251,7 +255,9 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             # ensure barcodes are unique
             if self.obs_df["barcode"].nunique() != self.obs_df.shape[0]:
                 warnings.warn("barcodes in obs are not unique, making them unique by prefixing with study name + '__'")
-                self.obs_df["barcode"] = self.obs_df["study_name"] + "__" + self.obs_df["barcode"]
+            
+            # TODO: REMOVE!
+            # self.obs_df["barcode"] = self.obs_df["study_name"] + "__" + self.obs_df["barcode"]
 
             
             # create idx columns in obs
@@ -414,15 +420,23 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
         # library calcs
         try:
-            with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-                self.library_calcs = soma_experiment.ms["RNA"]["sample_library_calcs"].read().concat().to_pandas()
+            if "log_mean" in self.obs_df.columns:
+                self.library_calcs = self.obs_df[["sample_idx", "log_mean", "log_var"]].drop_duplicates(subset=["sample_idx"])
                 self.library_calcs = self.library_calcs.set_index("sample_idx")
+
+                # change column names to library_log_means and library_log_vars
+                self.library_calcs.columns = ["library_log_means", "library_log_vars"]
+
+            else:
+                with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
+                    self.library_calcs = soma_experiment.ms["RNA"]["sample_library_calcs"].read().concat().to_pandas()
+                    self.library_calcs = self.library_calcs.set_index("sample_idx")
             
         except:
             self.filter_and_generate_library_calcs(iterative = (self.obs_df.shape[0] > 500000))
             # TODO: uncomment
-            # print(len(set(self.filter_pass_soma_ids)), " cells passed final filter.")
-            # self.obs_df = self.obs_df[self.obs_df["soma_joinid"].isin(self.filter_pass_soma_ids)]
+            print(len(set(self.filter_pass_soma_ids)), " cells passed final filter.")
+            self.obs_df = self.obs_df[self.obs_df["soma_joinid"].isin(self.filter_pass_soma_ids)]
 
         # define cell_idx as range
         self.obs_df['cell_idx'] = range(self.obs_df.shape[0])
