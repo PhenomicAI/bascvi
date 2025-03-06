@@ -390,7 +390,7 @@ def umap_calc_and_save_html(
     embeddings: pd.DataFrame,
     emb_columns: List,
     save_dir: str,
-    color_by_columns: List[str] = ["standard_true_celltype", "study_name"],
+    color_by_columns: List[str] = ["standard_true_celltype", "study_name", "scrnaseq_protocol"],
     save_model: bool = False,
     load_model: str = '',
     max_cells: int = 200000

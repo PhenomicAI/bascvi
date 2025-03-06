@@ -317,7 +317,7 @@ class BAScVITrainer(pl.LightningModule):
             save_dir = os.path.join(self.root_dir, "validation_umaps", str(self.valid_counter))
             os.makedirs(save_dir, exist_ok=True)
 
-            obs_columns = ["standard_true_celltype", "study_name", "sample_name"]
+            obs_columns = ["standard_true_celltype", "study_name", "sample_name", "scrnaseq_protocol"]
             if self.use_macrogenes:
                 obs_columns.append("species") 
                 pass
