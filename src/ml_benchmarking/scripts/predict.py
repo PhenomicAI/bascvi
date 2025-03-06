@@ -39,16 +39,16 @@ def predict(config: Dict):
     n_input = checkpoint['state_dict']['vae.px_r'].shape[0]
     assert n_input == len(pretrained_gene_list), f"Number of genes in the model {n_input} does not match the gene list length {len(pretrained_gene_list)}"
 
-    n_batch = checkpoint['state_dict']['vae.z_predictor.predictor.3.weight'].shape[0]
+    batch_level_sizes = checkpoint['hyper_parameters']['model_args']['batch_level_sizes']
     
-    model = EmbeddingTrainer.load_from_checkpoint(config["pretrained_model_path"], root_dir=config["run_save_dir"], n_input=n_input, n_batch=n_batch, gene_list=pretrained_gene_list)
+    model = EmbeddingTrainer.load_from_checkpoint(config["pretrained_model_path"], root_dir=config["run_save_dir"], n_input=n_input, batch_level_sizes=batch_level_sizes, gene_list=pretrained_gene_list)
 
 
     logger.info("--------------Setting up data module--------------")
     # Set the gene list in the datamodule from the saved model
     config["datamodule"]["options"]["pretrained_gene_list"] = pretrained_gene_list
     # Set the number of batches in the datamodule from the saved model
-    config["datamodule"]["options"]["pretrained_batch_size"] = model.model_args.get("n_batch", None)
+    config["datamodule"]["options"]["pretrained_batch_size"] = sum(batch_level_sizes)
 
     if "class_name" not in config["datamodule"]:
         config["datamodule"]["class_name"] = "TileDBSomaIterDataModule"
