@@ -1,38 +1,34 @@
 {
   "mode": "train",
 
-  "wandb_project_name": "multispecies_04Jan2025_10k_new",
+  "wandb_project_name": "multimode_25Feb2025",
 
-  "run_save_dir": "/home/ubuntu/paper_repo/bascvi/src/ml_benchmarking/runs/multispecies_04Jan2025_10k_new/",
+  "run_save_dir": "/home/ubuntu/paper_repo/bascvi/src/ml_benchmarking/runs/multimode_25Feb2025/",
 
   "datamodule": {
     "class_name": "TileDBSomaIterDataModule",
     "options": {
-      "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/multispecies_04Jan2025",
-      "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/barcode_lists/multispecies_04Jan2025_train_barcodes.pkl",
-      "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/gene_lists/multispecies_04Jan2025_genes_to_use_macrogenes.txt",
+      "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/multimode_25Feb2025",
+      "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/barcode_lists/multimode_25Feb2025_train_barcodes.pkl",
+      "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/gene_lists/genes_2ksamples_10cells.txt",
       "block_size": 5000,
       "random_seed": 1,
       "dataloader_args": {
         "batch_size": 128,
-        "num_workers": 8,
+        "num_workers": 4,
         "pin_memory": true
       },
       "batch_keys": {
         "modality": "scrnaseq_protocol",
         "study": "study_name",
-        "sample": "sample_idx"
+        "sample": "sample_name"
       }
     }
   },
   "emb_trainer": {
     "module_name": "bascvi",
     "class_name": "BAScVI",
-    "use_macrogenes": true,
-    "macrogene_method": "saturn",
-    "macrogene_matrix_path": "/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/ESM2_phenomic/10k_centroid_distance_matrix_multispecies_04Jan2025.npy",
 
-    "freeze_macrogene_matrix": true,
     "model_args": {
       "n_hidden": 512,
       "n_latent": 10,
@@ -42,17 +38,16 @@
       "init_weights": true,
       "use_library": true,
       "use_batch_encoder": true,
-      "normalize_total": false,
-      "log_variational": true
+      "normalize_total": true,
+      "log_variational": false
     },
     "training_args": {
       "train_library": true,
 
-      "kl_loss_weight": 0.01,
+      "kl_loss_weight": 1.0,
       "disc_loss_weight": 10.0,
 
-
-      "n_steps_discriminator_warmup": 1000000,
+      "n_steps_discriminator_warmup": 100000,
       "sigmoidal_disc_warmup": true, 
 
       "save_validation_umaps": true,
