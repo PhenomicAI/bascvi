@@ -183,3 +183,12 @@ ml_benchmarking/bascvi/datamodule/notes.txt
 llm_scripts/scgpt-autoencoder/wandb/
 *.ckpt
 ml_benchmarking/runs
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.ico
+*.html
+src/ml_benchmarking/runs
