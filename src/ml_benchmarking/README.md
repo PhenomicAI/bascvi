@@ -38,21 +38,13 @@ Ensure that you have downloaded our [latest checkpoint](https://huggingface.co/p
 
 ## Key Steps
 
-Ensure your system has enough memory for the dataloader arguments you pass. If you encounter a killed process, a good first step is to lower block_size and/or decrease num_workers.
-
-## Trainers
-
-Trainers
+Ensure your system has enough memory for the dataloader arguments you pass. If you encounter a killed process, a good first step is to lower block_size (the number of cells loaded into memory at once) and/or decrease num_workers (the number of parallel workers).
 
 ## Models
 
-Are based off the ScVI arcitecture.
+BAscVI is based off the ScVI arcitecture, with some key adjustments detailed in our paper.
 
-Key adjustments are detailed in our paper.
-
-The standard ScVI models is contained in xxx
-
-Our modified Batch-Adversarial ScVI model is in bascvi.py
+The standard ScVI models is contained in `ml_benchmarking/bascvi/model/scvi.py`. Our modified Batch-Adversarial ScVI model is in `ml_benchmarking/bascvi/model/bascvi.py`.
 
 ## Checkpoints
 
@@ -64,6 +56,8 @@ https://huggingface.co/phenomicai/bascvi-human/resolve/main/human_bascvi_epoch_1
 To evaluate the performance of the embedding approach we leverage author given labels.
 
 ## How to test your own Architectures
+
+Please refer to the template config files under `ml_benchmarking/config/templates/` for how to configure your own architecture. In the config json file, the `emb_trainer/model_args` section contains the arguments for the model architecture. The `emb_trainer/training_args` section contains the arguments for the training loop.
 
 ## License
 

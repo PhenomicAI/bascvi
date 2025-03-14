@@ -39,8 +39,9 @@ def predict(config: Dict):
     n_input = checkpoint['state_dict']['vae.px_r'].shape[0]
     assert n_input == len(pretrained_gene_list), f"Number of genes in the model {n_input} does not match the gene list length {len(pretrained_gene_list)}"
 
+    # Get the batch_level_sizes from the checkpoint
     batch_level_sizes = checkpoint['hyper_parameters']['model_args']['batch_level_sizes']
-    
+
     model = EmbeddingTrainer.load_from_checkpoint(config["pretrained_model_path"], root_dir=config["run_save_dir"], n_input=n_input, batch_level_sizes=batch_level_sizes, gene_list=pretrained_gene_list)
 
 

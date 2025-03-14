@@ -160,9 +160,6 @@ def calc_kni_score(
     cell_type_cat = np.array(obs_df[cell_type_col].cat.codes)
     assert -1 not in cell_type_cat, "N/A cell type in cell type column"
 
-    print(np.unique(cell_type_cat))
-    print(obs_df[cell_type_col].cat.categories)
-
     batch_cat = obs_df[batch_col].cat.codes
     batch_name = obs_df[batch_col].cat.categories
 
@@ -266,8 +263,8 @@ def calc_kni_score(
     not_diverse_df['cell_type'] = obs_df[cell_type_col].cat.categories[not_diverse_df['cell_type']]
     not_diverse_df['predicted_cell_type'] = obs_df[cell_type_col].cat.categories[not_diverse_df['predicted_cell_type']]
     # split by prediction
-    non_diverse_correctly_predicted = not_diverse_df.loc[not_diverse_df['cell_type'] == not_diverse_df['predicted_cell_type']]
-    non_diverse_incorrectly_predicted = not_diverse_df.loc[not_diverse_df['cell_type'] != not_diverse_df['predicted_cell_type']]
+    non_diverse_correctly_predicted = not_diverse_df.loc[not_diverse_df['cell_type'] == not_diverse_df['predicted_cell_type']].copy()
+    non_diverse_incorrectly_predicted = not_diverse_df.loc[not_diverse_df['cell_type'] != not_diverse_df['predicted_cell_type']].copy()
     # drop prediction 
     non_diverse_correctly_predicted.drop('predicted_cell_type', axis=1, inplace=True)
     non_diverse_incorrectly_predicted.drop('predicted_cell_type', axis=1, inplace=True)
