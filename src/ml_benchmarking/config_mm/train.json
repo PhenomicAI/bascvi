@@ -1,0 +1,79 @@
+{
+  "mode": "train",
+
+  "wandb_project_name": "multimode_25Feb2025",
+
+  "run_save_dir": "/home/ubuntu/paper_repo/bascvi/src/ml_benchmarking/mm_runs/multimode_25Feb2025/",
+
+  "datamodule": {
+    "class_name": "TileDBSomaIterDataModule",
+    "options": {
+      "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/multimode_25Feb2025",
+      "barcodes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/barcode_lists/multimode_25Feb2025_train_barcodes.pkl",
+      "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/gene_lists/genes_2ksamples_10cells.txt",
+      "block_size": 5000,
+      "random_seed": 1,
+      "dataloader_args": {
+        "batch_size": 128,
+        "num_workers": 4,
+        "pin_memory": true
+      },
+      "batch_keys": {
+        "modality": "scrnaseq_protocol",
+        "study": "study_name",
+        "sample": "sample_name"
+      }
+    }
+  },
+  "emb_trainer": {
+    "model_args": {
+    
+      "n_latent": 10,
+      "num_cell_type_experts": 10,
+
+      "scaling_factor": 10000.0,
+      "init_weights": true,
+      "use_library": true,
+      "normalize_total": true,
+      "log_variational": false
+    },
+    
+    "training_args": {
+      "train_library": true,
+
+      "kl_loss_weight": 1.0,
+      "disc_loss_weight": 10.0,
+
+      "n_steps_discriminator_warmup": 100000,
+      "sigmoidal_disc_warmup": true, 
+
+      "save_validation_umaps": true,
+      "run_validation_metrics": false,
+
+      "vae_optimizer": {
+        "lr": 1e-4,
+        "weight_decay": 1e-5
+      },
+      "discriminator_optimizer": {
+        "lr": 1e-4,
+        "weight_decay": 1e-5
+      },
+
+      "train_adversarial": true
+    },
+    "callbacks_args": {
+      "model_checkpoint": {
+        "monitor": "val_loss/loss",
+        "mode": "min"
+      },
+      "early_stopping": {
+        "monitor": "val_loss/loss",
+        "patience": 5,
+        "mode": "min"
+      }
+    }
+  },
+  "pl_trainer": {
+    "check_val_every_n_epoch": 1
+  }
+}

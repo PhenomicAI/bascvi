@@ -365,7 +365,7 @@ def calc_rbni_score(
     results_df = pd.DataFrame([acc, rbni, batch_counts, diverse_pass], index=["acc_count_radius", "rbni_count", "batch_count_radius", "diverse_pass_count_radius"]).T
 
     # add batch name to results, ensure same order as codes
-    results_df["batch_name"] = batch_name
+    results_df["batch_name"] = obs_df[batch_col].cat.categories[results_df.index]
 
     # calculate total scores
     rbni_total = results_df["rbni_count"].sum() / (results_df["batch_count_radius"].sum() + 1e-6)
