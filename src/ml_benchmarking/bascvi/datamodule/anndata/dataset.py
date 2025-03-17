@@ -116,7 +116,10 @@ class AnnDataDataset(IterableDataset):
                 else:
                     self.adata = scanpy.read(curr_adata_path)
 
-                
+                # ensure genes are lower case
+                self.adata.var['gene'] = self.adata.var['gene'].str.lower()
+                self.adata.var = self.adata.var.set_index(self.adata.var['gene'])
+
                 self.adata.X = self.adata.X.astype(np.int32)
 
                 # make index for locating cell in adata in case we subset
@@ -155,8 +158,12 @@ class AnnDataDataset(IterableDataset):
                     self.adata.obs['int_index'] = list(range(self.adata.shape[0]))
                     self.l_mean_all = self.adata.obs.groupby("sample_name")["int_index"].transform(log_mean, self.adata.X)
                     self.l_var_all = self.adata.obs.groupby("sample_name")["int_index"].transform(log_var, self.adata.X)
-          
-            X_curr = np.squeeze(self.adata.X[self.cell_counter, :].toarray())
+
+            # check if adata.X is a sparse matrix
+            if isinstance(self.adata.X, csr_matrix):
+                X_curr = np.squeeze(self.adata.X[self.cell_counter, :].toarray())
+            else:
+                X_curr = np.squeeze(self.adata.X[self.cell_counter, :])
             
 
             if self.predict_mode:
