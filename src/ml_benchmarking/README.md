@@ -6,7 +6,7 @@ This repository provides everything you need to benchmark the performance of you
 
 This package is built with [PyTorch](https://pytorch.org/) and leverages [PyTorch Lightning](https://www.pytorchlightning.ai/) to simplify the training and evaluation process. Familiarity with these libraries is recommended to fully understand and extend the benchmarking capabilities offered here.
 
-The datasets used in our benchmarks are available for download at [TODO]().
+The datasets used in our benchmarks are available for download from this S3 bucket: s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/
 
 ## Installation
 
@@ -42,7 +42,9 @@ Ensure your system has enough memory for the dataloader arguments you pass. If y
 
 ## Models
 
-BAscVI is based off the ScVI arcitecture, with some key adjustments detailed in our paper.
+All models are based off the [scVI](https://www.nature.com/articles/s41592-018-0229-2) architectures.
+
+Key adjustments are detailed in our paper.
 
 The standard ScVI models is contained in `ml_benchmarking/bascvi/model/scvi.py`. Our modified Batch-Adversarial ScVI model is in `ml_benchmarking/bascvi/model/bascvi.py`.
 

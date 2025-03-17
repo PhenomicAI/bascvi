@@ -7,7 +7,7 @@
     "datamodule": {
         "class_name": "TileDBSomaIterDataModule",
         "options": {
-            "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/",
+            "soma_experiment_uri": "../data/corpora/scref_ml/",
             "train_column": "included_scref_train",
             "genes_to_use_path": "../data/gene_lists/genes_2ksamples_10cells.txt",
             "block_size": 100000,
@@ -62,7 +62,7 @@
         
             "train_adversarial": true,
             "train_library": true,
-            
+
             "reduce_lr_on_plateau": true
             
         },
