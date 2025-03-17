@@ -456,7 +456,7 @@ class BAScVITrainer(pl.LightningModule):
                 vae_optimizer,
                 mode='min',           
                 factor=0.5,           # halve the learning rate
-                patience=5,           # wait 5 epochs for improvement
+                patience=4,           # wait 4 epochs for improvement
                 min_lr=1e-6,
                 verbose=True
             )
@@ -484,7 +484,7 @@ class BAScVITrainer(pl.LightningModule):
                     discriminator_optimizer,
                     mode='min',
                     factor=0.5,
-                    patience=5,
+                    patience=4,
                     min_lr=1e-6,
                     verbose=True
                 )

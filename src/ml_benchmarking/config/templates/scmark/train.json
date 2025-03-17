@@ -7,13 +7,13 @@
     "datamodule": {
       "class_name": "TileDBSomaIterDataModule",
       "options": {
-        "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scmark",
+        "soma_experiment_uri": "../data/corpora/scmark",
         "genes_to_use_path": "../data/gene_lists/genes_2ksamples_10cells.txt",
-        "block_size": 20000,
+        "block_size": 10000,
         "random_seed": 1,
         "dataloader_args": {
           "batch_size": 64,
-          "num_workers": 4,
+          "num_workers": 8,
           "pin_memory": true
         },
         "batch_keys": {
@@ -28,7 +28,7 @@
       "class_name": "BAScVI",
       
       "model_args": {
-        "n_hidden": 512,
+        "n_hidden": 256,
         "n_latent": 10,
         "n_layers": 3,
         "scaling_factor": 10000.0,
@@ -58,7 +58,9 @@
         },
   
         "train_library": true,
-        "train_adversarial": true
+        "train_adversarial": true,
+
+        "reduce_lr_on_plateau": true
       },
       
       "callbacks_args": {
@@ -68,13 +70,10 @@
         },
         "early_stopping": {
           "monitor": "val_loss/loss",
-          "patience": 5,
+          "patience": 10,
           "mode": "min"
         }
       }
-    },
-    "pl_trainer": {
-      "check_val_every_n_epoch": 2
     }
   }
   

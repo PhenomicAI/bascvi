@@ -257,20 +257,21 @@ def calc_kni_score(
 
     # summarize non diverse cells
     not_diverse_df = pd.DataFrame(not_diverse_df)
-    not_diverse_df['cell_type'] = not_diverse_df['cell_type']
-    not_diverse_df['predicted_cell_type'] = not_diverse_df['predicted_cell_type']
-    not_diverse_df['batch_name'] = obs_df[batch_col].cat.categories[not_diverse_df['batch_name']]
-    not_diverse_df['cell_type'] = obs_df[cell_type_col].cat.categories[not_diverse_df['cell_type']]
-    not_diverse_df['predicted_cell_type'] = obs_df[cell_type_col].cat.categories[not_diverse_df['predicted_cell_type']]
-    # split by prediction
-    non_diverse_correctly_predicted = not_diverse_df.loc[not_diverse_df['cell_type'] == not_diverse_df['predicted_cell_type']].copy()
-    non_diverse_incorrectly_predicted = not_diverse_df.loc[not_diverse_df['cell_type'] != not_diverse_df['predicted_cell_type']].copy()
-    # drop prediction 
-    non_diverse_correctly_predicted.drop('predicted_cell_type', axis=1, inplace=True)
-    non_diverse_incorrectly_predicted.drop('predicted_cell_type', axis=1, inplace=True)
-    # group by batch and cell type and count
-    non_diverse_correctly_predicted = non_diverse_correctly_predicted.groupby(['batch_name', 'cell_type']).size().reset_index(name='counts')
-    non_diverse_incorrectly_predicted = non_diverse_incorrectly_predicted.groupby(['batch_name', 'cell_type']).size().reset_index(name='counts')
+    if not_diverse_df.shape[0] > 0:
+        not_diverse_df['cell_type'] = not_diverse_df['cell_type']
+        not_diverse_df['predicted_cell_type'] = not_diverse_df['predicted_cell_type']
+        not_diverse_df['batch_name'] = obs_df[batch_col].cat.categories[not_diverse_df['batch_name']]
+        not_diverse_df['cell_type'] = obs_df[cell_type_col].cat.categories[not_diverse_df['cell_type']]
+        not_diverse_df['predicted_cell_type'] = obs_df[cell_type_col].cat.categories[not_diverse_df['predicted_cell_type']]
+        # split by prediction
+        non_diverse_correctly_predicted = not_diverse_df.loc[not_diverse_df['cell_type'] == not_diverse_df['predicted_cell_type']].copy()
+        non_diverse_incorrectly_predicted = not_diverse_df.loc[not_diverse_df['cell_type'] != not_diverse_df['predicted_cell_type']].copy()
+        # drop prediction 
+        non_diverse_correctly_predicted.drop('predicted_cell_type', axis=1, inplace=True)
+        non_diverse_incorrectly_predicted.drop('predicted_cell_type', axis=1, inplace=True)
+        # group by batch and cell type and count
+        non_diverse_correctly_predicted = non_diverse_correctly_predicted.groupby(['batch_name', 'cell_type']).size().reset_index(name='counts')
+        non_diverse_incorrectly_predicted = non_diverse_incorrectly_predicted.groupby(['batch_name', 'cell_type']).size().reset_index(name='counts')
 
 
     return {
@@ -281,9 +282,6 @@ def calc_kni_score(
         'confusion_matrix': acc_conf_mat,
         'kni_confusion_matrix': kni_conf_mat,
         'results_by_batch': results_df,
-        'non_diverse': not_diverse_df,
-        'non_diverse_correctly_predicted': non_diverse_correctly_predicted,
-        'non_diverse_incorrectly_predicted': non_diverse_incorrectly_predicted
         }
 
 

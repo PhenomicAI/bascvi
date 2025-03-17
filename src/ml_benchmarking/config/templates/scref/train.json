@@ -40,11 +40,11 @@
 
         "training_args": {
             "kl_loss_weight": 1.0,
-            "disc_loss_weight": 10.0,
+            "disc_loss_weight": 5.0,
 
-            "n_steps_kl_warmup": 10000,
+            "n_steps_kl_warmup": 50000,
 
-            "n_steps_discriminator_warmup": 100000,
+            "n_steps_discriminator_warmup": 500000,
             "sigmoidal_disc_warmup": true, 
 
             "save_validation_umaps": true,
@@ -54,14 +54,17 @@
             "vae_optimizer": {
                 "lr": 1e-4,
                 "weight_decay": 1e-5
-              },
-              "discriminator_optimizer": {
+            },
+            "discriminator_optimizer": {
                 "lr": 1e-4,
                 "weight_decay": 1e-5
-              },
+            },
         
-              "train_adversarial": true,
-              "train_library": true
+            "train_adversarial": true,
+            "train_library": true,
+            
+            "reduce_lr_on_plateau": true
+            
         },
 
         "callbacks_args": {
@@ -71,12 +74,9 @@
             },
             "early_stopping": {
                 "monitor": "val_loss/loss",
-                "patience": 5,
+                "patience": 10,
                 "mode": "min"
             }
-        },
-        "pl_trainer": {
-            "check_val_every_n_epoch": 2
         }
     }
 }
