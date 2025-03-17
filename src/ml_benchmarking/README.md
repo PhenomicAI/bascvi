@@ -49,7 +49,7 @@ The standard ScVI models is contained in `ml_benchmarking/bascvi/model/scvi.py`.
 ## Checkpoints
 
 bascvi-human:
-https://huggingface.co/phenomicai/bascvi-human/resolve/main/human_bascvi_epoch_123.ckpt
+(TO BE UPDATED)
 
 ## Evaluation
 
