@@ -42,6 +42,7 @@ class BAScVI(nn.Module):
         self,
         n_input: int,
         batch_level_sizes: List[int],
+        n_batch: int = 0,
         n_hidden: int = 128,
         n_latent: int = 10,
         n_layers: int = 1,
@@ -56,7 +57,9 @@ class BAScVI(nn.Module):
         use_zinb = True,
         macrogene_matrix = None,
         macrogene_hidden_dim = None,
-        freeze_macrogene_matrix = True
+        freeze_macrogene_matrix = True,
+        predict_only = False
+
     ):
         super().__init__()
 
@@ -143,11 +146,17 @@ class BAScVI(nn.Module):
             n_hidden=n_hidden,
         )
         
-        self.z_predictors = nn.ModuleList([BPredictor(n_input=n_hidden, n_batch=n_batch, n_hidden=n_hidden) for n_batch in batch_level_sizes])
-        self.x_predictors = nn.ModuleList([BPredictor(n_input=n_hidden, n_batch=n_batch, n_hidden=n_hidden) for n_batch in batch_level_sizes])
-        
-        self.loss_cce = torch.nn.CrossEntropyLoss()
-        
+        # Only initialize discriminator networks if not in predict_only mode
+        if not predict_only:
+            self.z_predictors = nn.ModuleList([BPredictor(n_input=n_hidden, n_batch=n_batch, n_hidden=n_hidden) for n_batch in batch_level_sizes])
+            self.x_predictors = nn.ModuleList([BPredictor(n_input=n_hidden, n_batch=n_batch, n_hidden=n_hidden) for n_batch in batch_level_sizes])
+            self.loss_cce = torch.nn.CrossEntropyLoss()
+        else:
+            # Create empty placeholders or None for these attributes
+            self.z_predictors = None
+            self.x_predictors = None
+            self.loss_cce = None
+            
         if init_weights:
             self.apply(self.init_weights)
 
@@ -177,8 +186,9 @@ class BAScVI(nn.Module):
         qz_m, qz_v, z, x_pred = self.z_encoder(x, batch_emb)
 
         x_preds = []
-        for i, x_predictor in enumerate(self.x_predictors):
-            x_preds.append(x_predictor(x_pred))
+        if hasattr(self, 'x_predictors') and self.x_predictors is not None:
+            for i, x_predictor in enumerate(self.x_predictors):
+                x_preds.append(x_predictor(x_pred))
 
         if self.use_library:
             ql_m, ql_v, library_encoded = self.l_encoder(x, batch_emb)
@@ -206,8 +216,9 @@ class BAScVI(nn.Module):
         px_r = torch.exp(px_r)       
 
         z_preds = []
-        for i, z_predictor in enumerate(self.z_predictors):
-            z_preds.append(z_predictor(z_pred))
+        if hasattr(self, 'z_predictors') and self.z_predictors is not None:
+            for i, z_predictor in enumerate(self.z_predictors):
+                z_preds.append(z_predictor(z_pred))
 
         counts_pred = ZeroInflatedNegativeBinomial(mu=px_rate, theta=px_r, zi_logits=px_dropout).sample()
         
@@ -412,14 +423,18 @@ class BAScVI(nn.Module):
         return reconst_loss
     
     def get_disc_loss(self, preds, batch_vecs):
-            disc_losses = []
-            for i, pred in enumerate(preds):
-                disc_losses.append(self.loss_cce(pred, batch_vecs[i].argmax(dim=1)))
+         # Skip if we're in predict_only mode or loss_cce is None
+        if not hasattr(self, 'loss_cce') or self.loss_cce is None:
+            return torch.tensor(0.0, device=preds[0].device if preds else None), []
+        
+        disc_losses = []
+        for i, pred in enumerate(preds):
+            disc_losses.append(self.loss_cce(pred, batch_vecs[i].argmax(dim=1)))
 
-            # TODO: add weights for the different losses?
-            disc_loss_reduced = torch.mean(torch.stack(disc_losses))
+        # TODO: add weights for the different losses?
+        disc_loss_reduced = torch.mean(torch.stack(disc_losses))
 
-            return disc_loss_reduced, disc_losses
+        return disc_loss_reduced, disc_losses
 
 
         
@@ -439,14 +454,14 @@ class BPredictor(nn.Module):
                     n_input,
                     n_hidden,
                     ),
-            nn.BatchNorm1d(n_hidden),
+            nn.LayerNorm(n_hidden),
             nn.LeakyReLU(),
             
             nn.Linear(
                     n_hidden,
                     n_batch,
                     ),
-            nn.BatchNorm1d(n_batch),
+            nn.LayerNorm(n_batch),
             )
 
     def forward(

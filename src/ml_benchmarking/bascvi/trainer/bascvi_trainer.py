@@ -64,6 +64,7 @@ class BAScVITrainer(pl.LightningModule):
         macrogene_matrix_path: str = None,
         freeze_macrogene_matrix: bool = True,
         batch_level_sizes: list = None,
+        predict_only: bool = False,
     ):
         super().__init__()
         # save hyperparameters in hparams.yaml file
@@ -106,6 +107,12 @@ class BAScVITrainer(pl.LightningModule):
         self.macrogene_matrix_path = macrogene_matrix_path
         self.freeze_macrogene_matrix = freeze_macrogene_matrix
         self.macrogene_species_list = macrogene_species_list
+
+        self.predict_only = predict_only
+
+        # Add predict_only to model_args
+        if predict_only:
+            self.model_args["predict_only"] = predict_only
 
         # neat way to dynamically import classes
         # __import__ method used to fetch module
@@ -155,6 +162,24 @@ class BAScVITrainer(pl.LightningModule):
         if os.path.isdir(os.path.join(self.root_dir, "validation_umaps")):
             shutil.rmtree(os.path.join(self.root_dir, "validation_umaps"))
    
+    @classmethod
+    def load_from_checkpoint(cls, checkpoint_path, map_location=None, **kwargs):
+        """Override to handle predict_only mode."""
+        predict_only = kwargs.get('predict_only', False)
+        
+        # First load with strict=False to avoid the missing keys error
+        model = super(BAScVITrainer, cls).load_from_checkpoint(
+            checkpoint_path, 
+            map_location=map_location, 
+            strict=False,
+            **kwargs
+        )
+        
+        # Set model to eval mode for prediction
+        if predict_only:
+            model.eval()
+            
+        return model
 
     def configure_callbacks(
         self,
@@ -384,9 +409,7 @@ class BAScVITrainer(pl.LightningModule):
         return self.validation_step(batch, batch_idx)
     
     def predict_step(self, batch, batch_idx, give_mean: bool = True, return_counts: bool = False):
-        print("Predict step")
         inference_outputs, generative_outputs = self(batch, encode=True, predict_mode=True)
-        print("Predicted")
 
         if return_counts:
             if "soma_joinid" in batch:
@@ -425,25 +448,24 @@ class BAScVITrainer(pl.LightningModule):
                 self.vae.decoder.parameters()
                 )
         
-        optimizer = torch.optim.Adam(g_params, **self.training_args["vae_optimizer"])
-        config = {"optimizer": optimizer}
+        vae_optimizer = torch.optim.Adam(g_params, **self.training_args["vae_optimizer"])
+        vae_config = {"optimizer": vae_optimizer}
 
         if self.training_args.get("reduce_lr_on_plateau"):
-            scheduler = ReduceLROnPlateau(
-                optimizer,
-                **self.training_args.get("reduce_lr_on_plateau"),
-                threshold_mode="abs",
-                verbose=True,
+            vae_scheduler = ReduceLROnPlateau(
+                vae_optimizer,
+                mode='min',           
+                factor=0.5,           # halve the learning rate
+                patience=5,           # wait 5 epochs for improvement
+                min_lr=1e-6,
+                verbose=True
             )
-            config["lr_scheduler"] = {
-                "scheduler": scheduler,
-                "monitor": self.training_args["lr_scheduler_metric"],
+            vae_config["lr_scheduler"] = {
+                "scheduler": vae_scheduler,
+                "monitor": "val_loss/loss",
             }
         
-        elif self.training_args.get("step_lr_scheduler"):
-            scheduler = StepLR(optimizer, **self.training_args.get("step_lr_scheduler"))
-            config["lr_scheduler"] = scheduler
-        
+
         if self.training_args.get("train_adversarial"):
             print("Adversarial Training: True")
             # Discriminator Optimizer
@@ -455,11 +477,23 @@ class BAScVITrainer(pl.LightningModule):
                 *params
                 )
               
-            p_opt = torch.optim.Adam(p_params, **self.training_args["discriminator_optimizer"])        
-            # plr_scheduler = StepLR(p_opt, **self.training_args.get("step_lr_scheduler"))        
-            
-            return [config,{"optimizer": p_opt}]
+            discriminator_optimizer = torch.optim.Adam(p_params, **self.training_args["discriminator_optimizer"])        
+            discriminator_config = {"optimizer": discriminator_optimizer}
+            if self.training_args.get("reduce_lr_on_plateau"):
+                disc_scheduler = ReduceLROnPlateau(
+                    discriminator_optimizer,
+                    mode='min',
+                    factor=0.5,
+                    patience=5,
+                    min_lr=1e-6,
+                    verbose=True
+                )
+                discriminator_config["lr_scheduler"] = {
+                    "scheduler": disc_scheduler,
+                    "monitor": "val_loss/disc_loss",
+                }
+            return [vae_config, discriminator_config]
             
         else:
             print("Adversarial Training: False")
-            return config
+            return vae_config
