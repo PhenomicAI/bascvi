@@ -1,4 +1,5 @@
 import collections
+from typing import Optional
 import torch
 import torch.nn as nn
 
@@ -39,7 +40,7 @@ class BDecoder(nn.Module):
                     n_input,
                     n_hidden,
                     ),
-            nn.BatchNorm1d(n_hidden, momentum=0.01, eps=0.001),
+            nn.LayerNorm(n_hidden),
             nn.ReLU(),
             )
         
@@ -55,7 +56,7 @@ class BDecoder(nn.Module):
                                 n_in + n_batch,
                                 n_out,
                             ),
-                            nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001),
+                            nn.LayerNorm(n_out),
                             nn.ReLU(),
                         ),
                     )
@@ -76,7 +77,7 @@ class BDecoder(nn.Module):
         self,
         z: torch.Tensor,
         batch_emb: torch.Tensor,
-        library: torch.Tensor=None,
+        library: Optional[torch.Tensor] = None,
     ):
         """
         The forward computation for a single sample.

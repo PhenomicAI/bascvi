@@ -59,7 +59,7 @@ class Encoder(nn.Module):
                                 n_in + n_batch,
                                 n_out,
                             ),
-                            nn.LayerNorm(n_out), #nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001),
+                            nn.LayerNorm(n_out),
                             nn.ReLU(),
                             nn.Dropout(p=dropout_rate),
                         ),
@@ -103,5 +103,8 @@ class Encoder(nn.Module):
         q = x
         q_m = self.mean_encoder(q)
         q_v = torch.exp(self.var_encoder(q)) + self.var_eps
+
+        # Sample from the distribution
         latent = reparameterize_gaussian(q_m, q_v)
+
         return q_m, q_v, latent
