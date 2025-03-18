@@ -34,7 +34,7 @@ Please refer to the template config file under `ml_benchmarking/config/templates
 
 `python -m ml_benchmarking.scripts.run_config -c ml_benchmarking/config/templates/predict.json`
 
-Ensure that you have downloaded our [latest checkpoint](https://huggingface.co/phenomicai/bascvi-human/resolve/main/human_bascvi_epoch_123.ckpt) and update the `pretrained_model_path` in the config file with the checkpoint location on your system.
+Ensure that you have downloaded our [paper checkpoint](https://huggingface.co/phenomicai/bascvi-human/resolve/main/human_bascvi_epoch_123.ckpt) and update the `pretrained_model_path` in the config file with the checkpoint location on your system.
 
 ## Key Steps
 
@@ -50,8 +50,7 @@ The standard ScVI models is contained in `ml_benchmarking/bascvi/model/scvi.py`.
 
 ## Checkpoints
 
-bascvi-human:
-(TO BE UPDATED)
+[bascvi-human (used in paper)](https://huggingface.co/phenomicai/bascvi-human/resolve/main/human_bascvi_epoch_123.ckpt)
 
 ## Evaluation
 
