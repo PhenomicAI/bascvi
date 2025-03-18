@@ -1,0 +1,24 @@
+{
+    "mode": "predict",
+
+    "pretrained_model_path": "/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/scref_mu_macrogene_sweeps/scmark/256_relu_pre_transform_5k_disc_model_size/datamodule_{'options': {'genes_to_use_path': '/home/ubuntu/paper_repo/bascvi/data/human_mouse_genes_to_use_macrogenes.txt'}}_emb_trainer_{'macrogene_method': 'concat_norm', 'training_args': {'disc_loss_weight': 5000}, 'model_args': {'n_hidden': 64, 'n_layers': 2}}/bascvi/w96vihhr/checkpoints/scvi-vae-epoch=77-elbo_val=0.00.ckpt",
+
+    "run_save_dir": "/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/scref_mu_macrogene_sweeps/scmark/256_relu_pre_transform_5k_disc_model_size/datamodule_{'options': {'genes_to_use_path': '",
+    
+    "datamodule": {
+        "class_name": "TileDBSomaIterDataModule",
+        "options": {
+            "soma_experiment_uri": "/home/ubuntu/paper_repo/bascvi/data/corpora/scmark/",
+            "block_size": 40000,
+            "dataloader_args": {
+                "batch_size": 64,
+                "num_workers": 4,
+                "pin_memory": true
+            }
+        }
+    },
+
+    "trainer_module_name": "bascvi_trainer",
+    "trainer_class_name": "BAScVITrainer"
+
+}

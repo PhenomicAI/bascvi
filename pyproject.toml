@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bascvi"
+version = "0.1.0"
+description = "TBC"
+authors = [{name = "Phenomic AI", email = "sctx@phenomic.ai"}]
+license = {file = "LICENSE"}
+readme = "README.md"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python"
+]
+dependencies = [
+    "faiss-cpu",
+    "pytorch-lightning",
+    "torch",
+    "scanpy",
+    "fast_matrix_market",
+    "tiledb",
+    "tiledbsoma",
+    "plotly",
+    "wandb",
+    "python-dotenv"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ml_benchmarking*"]
+exclude = ["*tests*", "*venv*", "*runs*", "*notebooks*", "llm_scripts*", "pai*", "pai_soma_data*"]
