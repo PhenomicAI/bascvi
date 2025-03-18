@@ -454,14 +454,14 @@ class BPredictor(nn.Module):
                     n_input,
                     n_hidden,
                     ),
-            nn.LayerNorm(n_hidden),
+            nn.BatchNorm1d(n_hidden, eps=1e-5), # nn.LayerNorm(n_hidden),
             nn.LeakyReLU(),
             
             nn.Linear(
                     n_hidden,
                     n_batch,
                     ),
-            nn.LayerNorm(n_batch),
+            nn.BatchNorm1d(n_batch, eps=1e-5), # nn.LayerNorm(n_batch),
             )
 
     def forward(

@@ -40,7 +40,7 @@ class BDecoder(nn.Module):
                     n_input,
                     n_hidden,
                     ),
-            nn.LayerNorm(n_hidden),
+            nn.BatchNorm1d(n_hidden, momentum=0.01, eps=0.001), # nn.LayerNorm(n_hidden),
             nn.ReLU(),
             )
         
@@ -56,7 +56,7 @@ class BDecoder(nn.Module):
                                 n_in + n_batch,
                                 n_out,
                             ),
-                            nn.LayerNorm(n_out),
+                            nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001), # nn.LayerNorm(n_out),
                             nn.ReLU(),
                         ),
                     )

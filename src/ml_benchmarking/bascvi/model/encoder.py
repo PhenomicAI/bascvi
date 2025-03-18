@@ -59,7 +59,7 @@ class Encoder(nn.Module):
                                 n_in + n_batch,
                                 n_out,
                             ),
-                            nn.LayerNorm(n_out),
+                            nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001), # nn.LayerNorm(n_out),
                             nn.ReLU(),
                             nn.Dropout(p=dropout_rate),
                         ),
