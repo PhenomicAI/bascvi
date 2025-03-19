@@ -147,9 +147,9 @@ def train(config: Dict):
     kni_score.pop("confusion_matrix")
     kni_score.pop("kni_confusion_matrix")
     kni_score.pop("results_by_batch")
-    kni_score.pop("non_diverse")
-    kni_score.pop("non_diverse_correctly_predicted")
-    kni_score.pop("non_diverse_incorrectly_predicted")
+    # kni_score.pop("non_diverse")
+    # kni_score.pop("non_diverse_correctly_predicted")
+    # kni_score.pop("non_diverse_incorrectly_predicted")
 
     rbni_score.pop("results_by_batch")
 

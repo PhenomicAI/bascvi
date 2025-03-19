@@ -151,7 +151,7 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 #     print(self.num_cells_in_block, self.start_block, self.curr_block, self.end_block, self.num_blocks)
                 #     return
                 try:
-                    # read block
+                     # read block
                     with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
                         # OLD WAY
                         sorted_soma_joinids = sorted(self.soma_joinid_block)

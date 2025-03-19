@@ -366,7 +366,6 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
             self.num_genes = len(self.genes_to_use)
 
-
                
         # CELLS
 

@@ -1,20 +1,19 @@
 {
     "mode": "train",
   
-    "wandb_project_name": "scmark_new_disc",
-  
-    "run_save_dir": "/home/ubuntu/paper_repo/bascvi/ml_benchmarking/runs/scmark_new_disc/",
+    "wandb_project_name": "scmark",
+    "run_save_dir": "../runs/scmark/",
   
     "datamodule": {
       "class_name": "TileDBSomaIterDataModule",
       "options": {
-        "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scmark",
-        "genes_to_use_path": "/home/ubuntu/paper_repo/bascvi/data/gene_lists/genes_2ksamples_10cells.txt",
+        "soma_experiment_uri": "../data/corpora/scmark",
+        "genes_to_use_path": "../data/gene_lists/genes_2ksamples_10cells.txt",
         "block_size": 10000,
         "random_seed": 1,
         "dataloader_args": {
           "batch_size": 64,
-          "num_workers": 4,
+          "num_workers": 8,
           "pin_memory": true
         },
         "batch_keys": {
@@ -29,16 +28,14 @@
       "class_name": "BAScVI",
       
       "model_args": {
-        "n_hidden": 512,
+        "n_hidden": 256,
         "n_latent": 10,
         "n_layers": 3,
         "scaling_factor": 10000.0,
-        "init_weights": true,
         "use_library": true,
-        "use_batch_encoder": true,
-        "normalize_total": true,
-        "log_variational": false
+        "use_batch_encoder": true
       },
+
       "training_args": {
         "kl_loss_weight": 1.0,
         "disc_loss_weight": 10.0,
@@ -61,8 +58,11 @@
         },
   
         "train_library": true,
-        "train_adversarial": true
+        "train_adversarial": true,
+
+        "reduce_lr_on_plateau": true
       },
+      
       "callbacks_args": {
         "model_checkpoint": {
           "monitor": "val_loss/loss",
@@ -70,13 +70,10 @@
         },
         "early_stopping": {
           "monitor": "val_loss/loss",
-          "patience": 5,
+          "patience": 10,
           "mode": "min"
         }
       }
-    },
-    "pl_trainer": {
-      "check_val_every_n_epoch": 2
     }
   }
   

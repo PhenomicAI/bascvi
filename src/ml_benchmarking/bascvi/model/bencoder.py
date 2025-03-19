@@ -59,7 +59,7 @@ class BEncoder(nn.Module):
                                 n_in + n_batch,
                                 n_out,
                             ),
-                            nn.LayerNorm(n_out), #nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001),
+                            nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001), #nn.LayerNorm(n_out),
                             nn.ReLU(),
                             nn.Dropout(p=dropout_rate),
                         ),
@@ -74,7 +74,7 @@ class BEncoder(nn.Module):
                     n_hidden,
                     n_hidden,
                     ),
-            nn.BatchNorm1d(n_hidden, momentum=0.01, eps=0.001),
+            nn.BatchNorm1d(n_hidden, momentum=0.01, eps=0.001), # nn.LayerNorm(n_hidden),
             nn.ReLU(),
             )
             
@@ -100,27 +100,23 @@ class BEncoder(nn.Module):
             tensors of shape ``(n_latent,)`` for mean and var, and sample
         """
 
-        if torch.isnan(x).any() or torch.isinf(x).any():
-            print("4) NaN detected before BatchNorm!")
 
         for layer in self.encoder:
             x = torch.cat((x, batch_emb-batch_emb), dim=-1)
             x = layer(x)
 
-        if torch.isnan(x).any() or torch.isinf(x).any():
-            print("5) NaN detected before BatchNorm!")
 
         x = self.b_encoder(x)
 
-        if torch.isnan(x).any() or torch.isinf(x).any():
-            print("6) NaN detected before BatchNorm!")
 
         x_pred = x
         
         # Parameters for latent distribution
         q = x
         q_m = self.mean_encoder(q)
-        q_v = torch.exp(torch.clamp(self.var_encoder(q), min=-10, max=10)) + self.var_eps
+        q_v = torch.exp(self.var_encoder(q)) + self.var_eps
         
+        # Sample from the distribution
         latent = reparameterize_gaussian(q_m, q_v)
+        
         return q_m, q_v, latent, x_pred

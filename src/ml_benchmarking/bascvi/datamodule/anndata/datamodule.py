@@ -26,6 +26,9 @@ class AnnDataDataModule(pl.LightningDataModule):
         self.pretrained_batch_size = pretrained_batch_size
         self.pretrained_gene_list = pretrained_gene_list
 
+        # ensure genes are lower case
+        self.pretrained_gene_list = [gene.lower() for gene in self.pretrained_gene_list]
+
         assert os.path.exists(data_root_dir), f"Data root directory {data_root_dir} does not exist"
 
         # with open(gene_list_path, "r") as f:

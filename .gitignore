@@ -184,3 +184,13 @@ llm_scripts/scgpt-autoencoder/wandb/
 *.ckpt
 ml_benchmarking/runs
 *runs*
+notebooks/tutorials/prediction_results/*
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.ico
+*.html
+src/ml_benchmarking/runs

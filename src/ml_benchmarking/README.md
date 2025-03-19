@@ -6,7 +6,7 @@ This repository provides everything you need to benchmark the performance of you
 
 This package is built with [PyTorch](https://pytorch.org/) and leverages [PyTorch Lightning](https://www.pytorchlightning.ai/) to simplify the training and evaluation process. Familiarity with these libraries is recommended to fully understand and extend the benchmarking capabilities offered here.
 
-The datasets used in our benchmarks are available for download at [TODO]().
+The datasets used in our benchmarks are available for download from this S3 bucket: s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/
 
 ## Installation
 
@@ -34,36 +34,31 @@ Please refer to the template config file under `ml_benchmarking/config/templates
 
 `python -m ml_benchmarking.scripts.run_config -c ml_benchmarking/config/templates/predict.json`
 
-Ensure that you have downloaded our [latest checkpoint](https://huggingface.co/phenomicai/bascvi-human/resolve/main/human_bascvi_epoch_123.ckpt) and update the `pretrained_model_path` in the config file with the checkpoint location on your system.
+Ensure that you have downloaded our [paper checkpoint](https://huggingface.co/phenomicai/bascvi-human/resolve/main/human_bascvi_epoch_123.ckpt) and update the `pretrained_model_path` in the config file with the checkpoint location on your system.
 
 ## Key Steps
 
-Ensure your system has enough memory for the dataloader arguments you pass. If you encounter a killed process, a good first step is to lower block_size and/or decrease num_workers.
-
-## Trainers
-
-Trainers
+Ensure your system has enough memory for the dataloader arguments you pass. If you encounter a killed process, a good first step is to lower block_size (the number of cells loaded into memory at once) and/or decrease num_workers (the number of parallel workers).
 
 ## Models
 
-Are based off the ScVI arcitecture.
+All models are based off the [scVI](https://www.nature.com/articles/s41592-018-0229-2) architectures.
 
 Key adjustments are detailed in our paper.
 
-The standard ScVI models is contained in xxx
-
-Our modified Batch-Adversarial ScVI model is in bascvi.py
+The standard ScVI models is contained in `ml_benchmarking/bascvi/model/scvi.py`. Our modified Batch-Adversarial ScVI model is in `ml_benchmarking/bascvi/model/bascvi.py`.
 
 ## Checkpoints
 
-bascvi-human:
-https://huggingface.co/phenomicai/bascvi-human/resolve/main/human_bascvi_epoch_123.ckpt
+[bascvi-human (used in paper)](https://huggingface.co/phenomicai/bascvi-human/resolve/main/human_bascvi_epoch_123.ckpt)
 
 ## Evaluation
 
 To evaluate the performance of the embedding approach we leverage author given labels.
 
 ## How to test your own Architectures
+
+Please refer to the template config files under `ml_benchmarking/config/templates/` for how to configure your own architecture. In the config json file, the `emb_trainer/model_args` section contains the arguments for the model architecture. The `emb_trainer/training_args` section contains the arguments for the training loop.
 
 ## License
 
