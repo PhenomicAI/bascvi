@@ -40,21 +40,7 @@ from dotenv import load_dotenv
 
 def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_celltype", batch_col: str = "study_name", max_prop_same_batch: float = 0.8, exclude_unknown: bool = True, restrict_species: bool = False):
 
-    load_dotenv("/home/ubuntu/.aws.env")
-
-    ACCESS_KEY = os.getenv("ACCESS_KEY")
-    SECRET_KEY = os.getenv("SECRET_KEY")
-    SOMA_CORPUS_URI = "s3://pai-scrnaseq/sctx_gui/corpora/multispecies_06Nov2024"
-
-    soma_experiment = soma.Experiment.open(SOMA_CORPUS_URI, context=soma.SOMATileDBContext(tiledb_ctx=tiledb.Ctx({
-            "vfs.s3.aws_access_key_id": ACCESS_KEY,
-            "vfs.s3.aws_secret_access_key": SECRET_KEY,
-            "vfs.s3.region": "us-east-2"
-        })))
-
-    obs_df = soma_experiment.obs.read(column_names=["barcode", "species"]).concat().to_pandas()
-    obs_df.columns
-
+    
 
     run_names = []
     pred_paths = []
@@ -94,17 +80,13 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
         else:
             emb_df = pd.read_csv(emb_path)
 
-        # add species column
-        if "species" not in emb_df.columns:
-            emb_df = emb_df.set_index("barcode").join(obs_df.set_index("barcode"))
-        
         # make metrics folder
         metrics_dir = os.path.join(root_dir, run_names[i], "metrics")
         os.makedirs(metrics_dir, exist_ok=True)
 
-        # set neurons
-        neuron_list = ['Glutamatergic_neuron','Chandelier_and_Lamp5', 'Interneuron']
-        emb_df[cell_type_col] = emb_df[cell_type_col].apply(lambda x: "Neuron" if x in neuron_list else x)
+        # # set neurons
+        # neuron_list = ['Glutamatergic_neuron','Chandelier_and_Lamp5', 'Interneuron']
+        # emb_df[cell_type_col] = emb_df[cell_type_col].apply(lambda x: "Neuron" if x in neuron_list else x)
 
         if restrict_species:
             save_name = "metrics_by_batch_restrict_species.tsv"
@@ -154,9 +136,9 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
         else:
             # calculate kni and rbni scores
             pbar.set_description(f"kni: {run_names[i]}")
-            kni = calc_kni_score(emb_df[cols], emb_df, batch_col=batch_col, cell_type_col=cell_type_col, max_prop_same_batch=max_prop_same_batch, exclude_unknown=exclude_unknown, n_neighbours=50) # TODO: switch to 50
+            kni = calc_kni_score(emb_df[cols], emb_df, batch_col=batch_col, cell_type_col=cell_type_col, max_prop_same_batch=max_prop_same_batch, exclude_unknown=exclude_unknown, n_neighbours=50, use_faiss=True) 
             # pbar.set_description(f"rbni: {run_names[i]}")
-            # rbni = calc_rbni_score(emb_df[cols], emb_df, batch_col=batch_col, cell_type_col=cell_type_col, max_prop_same_batch=max_prop_same_batch)
+            # rbni = calc_rbni_score(emb_df[cols], emb_df, batch_col=batch_col, cell_type_col=cell_type_col, max_prop_same_batch=max_prop_same_batch, use_faiss=True)
 
             pbar.set_description(f"saving: {run_names[i]}")
 
@@ -180,8 +162,8 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
                 print(f"{metric}: {kni[metric]}")
             print("\n\n")
 
-            kni['non_diverse_correctly_predicted'].to_csv(os.path.join(metrics_dir, "non_diverse_correctly_predicted.tsv"), sep="\t")
-            kni['non_diverse_incorrectly_predicted'].to_csv(os.path.join(metrics_dir, "non_diverse_incorrectly_predicted.tsv"), sep="\t")
+            # kni['non_diverse_correctly_predicted'].to_csv(os.path.join(metrics_dir, "non_diverse_correctly_predicted.tsv"), sep="\t")
+            # kni['non_diverse_incorrectly_predicted'].to_csv(os.path.join(metrics_dir, "non_diverse_incorrectly_predicted.tsv"), sep="\t")
 
 
     results = pd.concat(results_list)

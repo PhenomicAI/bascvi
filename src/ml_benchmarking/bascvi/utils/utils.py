@@ -37,43 +37,21 @@ class FaissRadiusNeighbors:
         return vals
 
 class FaissKNeighbors:
-    def __init__(self, n_neighbors=50, nprobe=10, use_gpu=False):
-        self.n_neighbors = n_neighbors
-        self.nprobe = nprobe
-        self.use_gpu = use_gpu
-        self.index = None
-        self.res = faiss.StandardGpuResources() if use_gpu else None
+    def __init__(self, k=50):
+        self.k = k
 
-    def fit(self, X, y=None):
-        n_samples, dim = X.shape
-        
-        if n_samples < 1000:
-            index_cpu = faiss.IndexFlatL2(dim)
-        elif n_samples < 10000:
-            index_cpu = faiss.index_factory(dim, "IVF64,Flat")
-        elif n_samples < 100000:
-            index_cpu = faiss.index_factory(dim, "IVF256,Flat")
-        elif n_samples < 1000000:
-            index_cpu = faiss.index_factory(dim, "IVF1024,Flat")
-        else:
-            index_cpu = faiss.index_factory(dim, "IVF4096,Flat")
-
-        if not index_cpu.is_trained:
-            index_cpu.train(X.astype(np.float32))
-        index_cpu.add(X.astype(np.float32))
-
-        # Move to GPU if needed
-        if self.use_gpu:
-            self.index = faiss.index_cpu_to_gpu(self.res, 0, index_cpu)
-        else:
-            self.index = index_cpu
-
-        if hasattr(self.index, 'nprobe'):
-            self.index.nprobe = self.nprobe
+    def fit(self, X, y):
+        d = X.shape[1]
+        self.index = index = faiss.IndexFlatL2()
+        quantizer = faiss.IndexFlatL2(d)
+        self.index = faiss.IndexIVFFlat(quantizer, d, 512)
+        self.index.nprobe = 20
+        self.index.train(X.astype(np.float32))
+        self.index.add(X.astype(np.float32))
 
     def kneighbors(self, X):
-        distances, indices = self.index.search(X.astype(np.float32), self.n_neighbors)
-        return indices
+        distances, indices = self.index.search(X.astype(np.float32), self.k)
+        return distances, indices
 
 
 def scale_embeddings(embeddings_df: pd.DataFrame) -> pd.DataFrame:
@@ -166,7 +144,7 @@ def calc_kni_score(
 
     # fit classifier
     if use_faiss == True:
-        raise NotImplementedError("Faiss not implemented for KNN")
+        classifier = FaissKNeighbors(k=n_neighbours)
     else:
         classifier = KNeighborsClassifier(n_neighbors=n_neighbours)
 
