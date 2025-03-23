@@ -1,17 +1,16 @@
 {
   "mode": "train",
 
-  "wandb_project_name": "mm_25Feb2025_med",
+  "wandb_project_name": "mm_scmark",
 
-  "run_save_dir": "../mm_runs/multimode_25Feb2025/",
+  "run_save_dir": "../mm_runs/test_scmark/",
 
   "datamodule": {
     "class_name": "TileDBSomaIterDataModule",
     "options": {
-      "soma_experiment_uri": "../data/corpora/multimode_25Feb2025/",
-      "barcodes_to_use_path": "../data/barcode_lists/multimode_25Feb2025_train_barcodes_med.pkl",
+      "soma_experiment_uri": "s3://pai-scrnaseq/sctx_gui/corpora/scmark/",
       "genes_to_use_path": "../data/gene_lists/genes_2ksamples_10cells.txt",
-      "block_size": 10000,
+      "block_size": 5000,
       "random_seed": 1,
       "dataloader_args": {
         "batch_size": 256,
@@ -27,6 +26,7 @@
   },
   "emb_trainer": {
     "model_args": {
+    
       "n_latent": 10,
       "n_cell_type_experts": 10
     },
@@ -36,13 +36,10 @@
 
       "reconstruction_loss_weight": 5000.0,
       "kl_loss_weight": 1.0,
-
-      "modality_class_weight": 0.0,
-
-      "batch_discriminator_ct_weight": 10.0,
-      "batch_discriminator_final_weight": 10.0,
-
-      "diversity_weight": 10000.0,
+      "modality_class_weight": 10.0,
+      "celltype_class_weight": 10.0,
+      "deconv_weight": 1000.0,
+      "diversity_weight": 1000.0,
 
       "save_validation_umaps": true,
       "run_validation_metrics": false,

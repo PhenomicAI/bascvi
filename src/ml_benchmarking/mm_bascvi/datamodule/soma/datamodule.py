@@ -16,7 +16,7 @@ from pyarrow.lib import ArrowInvalid
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 
-from ml_benchmarking.bascvi.datamodule.soma.dataset import TileDBSomaTorchIterDataset
+from ml_benchmarking.mm_bascvi.datamodule.soma.dataset import TileDBSomaTorchIterDataset
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 
 
@@ -268,6 +268,9 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.num_modalities = int(self.obs_df["modality_idx"].max() + 1)
             self.num_studies = int(self.obs_df["study_idx"].max() + 1)
             self.num_samples = int(self.obs_df["sample_idx"].max() + 1)
+
+            self.modalities_idx_to_name_dict = dict( enumerate(self.obs_df[self.batch_keys["modality"]].astype('category').cat.categories) )
+
 
             self.feature_presence_matrix = soma_experiment.ms["RNA"]["feature_presence_matrix"].read().coos(shape=(self.obs_df.sample_idx.nunique(), soma_experiment.ms["RNA"].var.count)).concat().to_scipy().toarray()
 

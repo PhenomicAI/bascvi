@@ -415,12 +415,14 @@ def umap_calc_and_save_html(
 
     fig_path_dict = {}
     for col in color_by_columns:
-        fig = px.scatter(embeddings, x='UMAP1', y='UMAP2', color=col, width=1000, height=800, opacity=0.7, title=col)
+        fig = px.scatter(embeddings, x='UMAP1', y='UMAP2', color=col, width=1000, height=800, opacity=0.2, title=col)
         fig.update_traces(marker=dict(size=size))
         fig.update_layout(legend_title_text=col)
         fig.write_image(os.path.join(save_dir, f"umap_colour_by_{col}.png"))
         fig.write_html(os.path.join(save_dir, f"umap_colour_by_{col}.html"))
         fig_path_dict[col] = os.path.join(save_dir, f"umap_colour_by_{col}.png")
+        # make legend dots bigger
+        fig.update_layout(legend=dict(itemsizing='constant'))
 
     return embeddings, fig_path_dict
 

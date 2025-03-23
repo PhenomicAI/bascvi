@@ -8,9 +8,11 @@ import wandb
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer
 
-from ml_benchmarking.bascvi.datamodule import TileDBSomaIterDataModule, AnnDataDataModule, EmbDatamodule
-from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
+from ml_benchmarking.mm_bascvi.datamodule import TileDBSomaIterDataModule, AnnDataDataModule, EmbDatamodule
+from ml_benchmarking.mm_bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 from ml_benchmarking.bascvi.utils.utils import calc_kni_score, calc_rbni_score #, umap_calc_and_save_html
+
+from ml_benchmarking.mm_bascvi.trainer.mmbascvi_trainer import MMBAscVITrainer
 
 
 logger = logging.getLogger("pytorch_lightning")
@@ -55,24 +57,21 @@ def train(config: Dict):
     config['emb_trainer']['gene_list'] = datamodule.gene_list
 
     # set the number of input genes and batches in the model from the datamodule
-    config['emb_trainer']['model_args']['n_genes'] = datamodule.num_genes
-    config['emb_trainer']['model_args']['n_modalities'] = datamodule.num_modalities
-    # config['emb_trainer']['model_args']['batch_level_sizes'] = datamodule.batch_level_sizes
+    config['emb_trainer']['model_args']['n_input'] = datamodule.num_genes
+    config['emb_trainer']['model_args']['batch_level_sizes'] = datamodule.batch_level_sizes
+    config['emb_trainer']['modalities_idx_to_name_dict'] = datamodule.modalities_idx_to_name_dict
+
 
     config["emb_trainer"]["soma_experiment_uri"] = datamodule.soma_experiment_uri
 
-    # dynamically import trainer class
-    module = __import__("ml_benchmarking.mm_bascvi.trainer", globals(), locals(), [config["trainer_module_name"] if "trainer_module_name" in config else "MMBAscVI_Trainer"], 0)
-    EmbeddingTrainer = getattr(module, config["trainer_class_name"] if "trainer_class_name" in config else "MMBAscVI_Trainer")
-
     if config.get("load_from_checkpoint"):
         logger.info(f"Loading trainer from checkpoint.....")
-        model = EmbeddingTrainer.load_from_checkpoint(
+        model = MMBAscVITrainer.load_from_checkpoint(
             config["load_from_checkpoint"], 
             )
     else:
         logger.info(f"Initializing Custom Embedding Trainer.....")
-        model = EmbeddingTrainer(
+        model = MMBAscVITrainer(
             config["run_save_dir"],
             **config["emb_trainer"]
             )
@@ -148,9 +147,9 @@ def train(config: Dict):
     kni_score.pop("confusion_matrix")
     kni_score.pop("kni_confusion_matrix")
     kni_score.pop("results_by_batch")
-    kni_score.pop("non_diverse")
-    kni_score.pop("non_diverse_correctly_predicted")
-    kni_score.pop("non_diverse_incorrectly_predicted")
+    # kni_score.pop("non_diverse")
+    # kni_score.pop("non_diverse_correctly_predicted")
+    # kni_score.pop("non_diverse_incorrectly_predicted")
 
     rbni_score.pop("results_by_batch")
 

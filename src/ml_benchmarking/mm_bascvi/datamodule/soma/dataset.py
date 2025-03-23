@@ -209,14 +209,14 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 modality_idx_curr = self.modality_idx_block[self.cell_counter]
                 study_idx_curr = self.study_idx_block[self.cell_counter]
 
-                # construct batch vecs
-                one_hot_modality = np.zeros((self.num_modalities,), dtype=np.float32)
-                one_hot_study = np.zeros((self.num_studies,), dtype=np.float32)
-                one_hot_sample = np.zeros((self.num_samples,), dtype=np.float32)
+                # # construct batch vecs
+                # one_hot_modality = np.zeros((self.num_modalities,), dtype=np.float32)
+                # one_hot_study = np.zeros((self.num_studies,), dtype=np.float32)
+                # one_hot_sample = np.zeros((self.num_samples,), dtype=np.float32)
 
-                one_hot_modality[modality_idx_curr] = 1
-                one_hot_study[study_idx_curr] = 1
-                one_hot_sample[sample_idx_curr] = 1
+                # one_hot_modality[modality_idx_curr] = 1
+                # one_hot_study[study_idx_curr] = 1
+                # one_hot_sample[sample_idx_curr] = 1
             
                 # library
                 if sample_idx_curr in self.library_calcs.index:
@@ -232,9 +232,10 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                     "soma_joinid": torch.tensor(soma_joinid, dtype=torch.int64),
                     "cell_idx": torch.tensor(cell_idx, dtype=torch.int64),
                     "feature_presence_mask": torch.from_numpy(feature_presence_mask),  
-                    "modality_vec": torch.from_numpy(one_hot_modality),
-                    "study_vec": torch.from_numpy(one_hot_study),
-                    "sample_vec": torch.from_numpy(one_hot_sample),
+                    # "modality_vec": torch.from_numpy(one_hot_modality.astype("int32")),
+                    # "study_vec": torch.from_numpy(one_hot_study.astype("int32")),
+                    # "sample_vec": torch.from_numpy(one_hot_sample.astype("int32")),
+                    "batch_idx": torch.tensor([modality_idx_curr, study_idx_curr, sample_idx_curr], dtype=torch.int64),
                     "local_l_mean": torch.tensor(local_l_mean),
                     "local_l_var": torch.tensor(local_l_var),
                 }

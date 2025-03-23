@@ -15,6 +15,7 @@ class ModalityCrossAttention(nn.Module):
             num_heads=1, 
             batch_first=True
         )
+        self.ln = nn.LayerNorm(latent_dim)
 
     def forward(
         self, 
@@ -22,6 +23,9 @@ class ModalityCrossAttention(nn.Module):
         modality_idx: torch.Tensor        # [batch_size]
     ) -> torch.Tensor:
         bsz, num_mods, dim = z_modality_stack.shape
+
+        # Convert modality_idx to long type
+        modality_idx = modality_idx.long()  
         
         # Gather queries for each sample
         query_list = []
@@ -29,10 +33,22 @@ class ModalityCrossAttention(nn.Module):
             query_list.append(z_modality_stack[i, modality_idx[i], :].unsqueeze(0))
         # [batch_size, 1, latent_dim]
         query = torch.cat(query_list, dim=0)
-        
+        query = query.unsqueeze(1)
+
         # Single pass of multihead attention
         refined, _ = self.attn(query, z_modality_stack, z_modality_stack)
         refined = refined.squeeze(1)  # -> [batch_size, latent_dim]
+
+        # Residual connection with the original query
+        # shape of query.squeeze(1): [batch_size, latent_dim]
+        residual = query.squeeze(1)
+        
+        # Direct addition
+        refined = refined + residual
+
+        # Layer norm
+        refined = self.ln(refined)
+
         return refined
 
 
@@ -69,6 +85,9 @@ class LearnedTempCellTypeCrossAttention(nn.Module):
         # For dot-product scaling
         self.scale_factor = math.sqrt(latent_dim)
 
+        # Layer norm
+        self.ln = nn.LayerNorm(latent_dim)
+
     def forward(
         self,
         z_modality_refined: torch.Tensor,  # [B, latent_dim]
@@ -85,6 +104,9 @@ class LearnedTempCellTypeCrossAttention(nn.Module):
           attn_output:  [B, latent_dim]  refined embedding after cross-attention
           attn_weights: [B, num_cell_type_experts] attention distribution over cell-type experts
         """
+        # Convert modality_idx to long type
+        modality_idx = modality_idx.long()  
+
 
         B, latent_dim = z_modality_refined.shape
         _, num_ct, _  = z_celltype_stack.shape
@@ -120,10 +142,20 @@ class LearnedTempCellTypeCrossAttention(nn.Module):
 
         # -- 4) Weighted sum of values => [B, 1, d]
         # v: [B, num_ct, d]
-        attn_output = torch.bmm(attn_weights, v)     # [B, 1, d]
+        refined = torch.bmm(attn_weights, v)     # [B, 1, d]
 
         # Squeeze extra dimensions
-        attn_output  = attn_output.squeeze(1)   # [B, d]
+        refined  = refined.squeeze(1)   # [B, d]
         attn_weights = attn_weights.squeeze(1)  # [B, num_ct]
 
-        return attn_output, attn_weights
+        # -- 5) Residual connection with the original query
+        # shape of z_modality_refined: [batch_size, latent_dim]
+        residual = z_modality_refined
+
+        # Direct addition of the residual
+        refined = refined + residual  
+
+        # Layer norm
+        refined = self.ln(refined)
+
+        return refined, attn_weights
