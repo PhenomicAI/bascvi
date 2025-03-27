@@ -503,7 +503,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
                 num_studies=self.num_studies,
                 num_samples=self.num_samples,
                 num_workers=self.dataloader_args['num_workers'],
-                verbose = self.verbose
+                verbose = self.verbose,
+                shuffle=True
             )
             self.val_dataset = TileDBSomaTorchIterDataset(
                 soma_experiment_uri=self.soma_experiment_uri,
