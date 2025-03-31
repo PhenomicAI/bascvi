@@ -68,10 +68,11 @@ class LearnedTempCellTypeCrossAttention(nn.Module):
     This way, single-cell domain can learn a lower temperature (sharper distribution),
     while bulk/spatial can learn a higher temperature (softer mixture).
     """
-    def __init__(self, latent_dim: int, num_modalities: int):
+    def __init__(self, latent_dim: int, num_modalities: int, residual_weight: float = 1.0):
         super().__init__()
         self.latent_dim = latent_dim
         self.num_modalities = num_modalities
+        self.residual_weight = residual_weight
 
         # Simple linear layers to project query/key/value
         self.query_proj = nn.Linear(latent_dim, latent_dim)
@@ -87,6 +88,7 @@ class LearnedTempCellTypeCrossAttention(nn.Module):
 
         # Layer norm
         self.ln = nn.LayerNorm(latent_dim)
+
 
     def forward(
         self,
@@ -153,7 +155,7 @@ class LearnedTempCellTypeCrossAttention(nn.Module):
         residual = z_modality_refined
 
         # Direct addition of the residual
-        refined = refined + residual  
+        refined = refined + residual * self.residual_weight
 
         # Layer norm
         refined = self.ln(refined)

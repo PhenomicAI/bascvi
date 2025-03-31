@@ -21,6 +21,10 @@ class VAEEncoder(nn.Module):
         self.fc_mu = nn.Linear(hidden_dims[-1], latent_dim)
         self.fc_logvar = nn.Linear(hidden_dims[-1], latent_dim)
 
+        self.log_scaling_factor = nn.Parameter(torch.log(torch.tensor(10000.0)))
+
+
+
     def reparameterize(self, mu, logvar):
         if torch.isnan(mu).any() or torch.isnan(logvar).any():
             print("NaN detected in reparameterization: mu or logvar contains NaN!")
@@ -31,8 +35,11 @@ class VAEEncoder(nn.Module):
 
     def forward(self, x: torch.Tensor):
 
+        x_sum = x.sum(dim=1, keepdim=True)
+        x_norm = x / (x_sum + 1e-6)
+
         # Normalize the input
-        x = torch.log(1 + 10000 * x / (x.sum(dim=1, keepdim=True) + 1e-6))
+        x = torch.log1p(torch.exp(self.log_scaling_factor) * x_norm)
 
         # Encode
         h = self.encoder(x)

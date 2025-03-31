@@ -366,7 +366,13 @@ def umap_calc_and_save_html(
     color_by_columns: List[str] = ["standard_true_celltype", "study_name", "scrnaseq_protocol"],
     save_model: bool = False,
     load_model: str = '',
-    max_cells: int = 200000
+    max_cells: int = 200000,
+    opacity: float = 0.5,
+    n_neighbors: int = 15,
+    min_dist: float = 0.15,
+    metric: str = 'euclidean',
+    n_jobs: int = -1,  # Use all available cores
+    low_memory: bool = False
 ):
 
     """Calculates UMAP wrt. embeddings, embeddings, and saves figures under save_dir
@@ -385,6 +391,20 @@ def umap_calc_and_save_html(
         whether to save the model
     load_model: str
         path to the model to load
+    max_cells: int
+        maximum number of cells to use for UMAP
+    opacity: float
+        opacity of points in scatter plot
+    n_neighbors: int
+        number of neighbors for UMAP
+    min_dist: float
+        minimum distance for UMAP
+    metric: str
+        distance metric for UMAP
+    n_jobs: int
+        number of jobs for parallel processing (-1 for all cores)
+    low_memory: bool
+        whether to use low memory mode (slower but uses less memory)
 
     Returns
     -------
@@ -395,34 +415,64 @@ def umap_calc_and_save_html(
     assert set(emb_columns).issubset(set(embeddings.columns)), "emb_columns not in embeddings columns"
     assert set(color_by_columns).issubset(set(embeddings.columns)), "color_by_columns not in embeddings columns"
 
-    # run UMAP
-    umap_model = UMAP(n_components=2, n_neighbors=15, min_dist=0.15, transform_seed=42)
-    model = umap_model.fit(embeddings[emb_columns])
+    # Subsample if needed
+    if embeddings.shape[0] > max_cells:
+        print(f"Subsampling {max_cells} cells from {embeddings.shape[0]} for UMAP calculation")
+        embeddings_subset = embeddings.sample(max_cells, random_state=42)
+        X = embeddings_subset[emb_columns].values
+    else:
+        X = embeddings[emb_columns].values
 
+    # Load existing model if specified
+    if load_model and os.path.exists(load_model):
+        import joblib
+        print(f"Loading UMAP model from {load_model}")
+        model = joblib.load(load_model)
+        umap_transformed = model.transform(X)
+    else:
+        # run UMAP with optimizations
+        umap_model = UMAP(
+            n_components=2, 
+            n_neighbors=n_neighbors, 
+            min_dist=min_dist, 
+            transform_seed=42,
+            metric=metric,
+            n_jobs=n_jobs,  # Parallel processing
+            low_memory=low_memory,
+        )
+        model = umap_model.fit(X)
+        umap_transformed = model.embedding_  # Use embedding_ directly instead of transform
 
-    umap_transformed = model.transform(embeddings[emb_columns])
-
+        # Save model if requested
+        if save_model:
+            import joblib
+            model_path = os.path.join(save_dir, "umap_model.joblib")
+            print(f"Saving UMAP model to {model_path}")
+            joblib.dump(model, model_path)
 
     # Create a DataFrame for UMAP result
-    umap_df = pd.DataFrame(umap_transformed, columns=['UMAP1', 'UMAP2'])
-
-
-    embeddings['UMAP1'] = umap_df['UMAP1']
-    embeddings['UMAP2'] = umap_df['UMAP2']
-    
+    if embeddings.shape[0] > max_cells:
+        # For the subsampled case, we need to transform the full dataset
+        full_transformed = model.transform(embeddings[emb_columns].values)
+        embeddings['UMAP1'] = full_transformed[:, 0]
+        embeddings['UMAP2'] = full_transformed[:, 1]
+    else:
+        # For the non-subsampled case, we can use the embedding directly
+        embeddings['UMAP1'] = umap_transformed[:, 0]
+        embeddings['UMAP2'] = umap_transformed[:, 1]
 
     size = 3 if embeddings.shape[0] > 5000 else 5
 
     fig_path_dict = {}
     for col in color_by_columns:
-        fig = px.scatter(embeddings, x='UMAP1', y='UMAP2', color=col, width=1000, height=800, opacity=0.2, title=col)
+        fig = px.scatter(embeddings, x='UMAP1', y='UMAP2', color=col, width=1000, height=800, opacity=opacity, title=col)
         fig.update_traces(marker=dict(size=size))
         fig.update_layout(legend_title_text=col)
+        # make legend dots constant
+        fig.update_layout(legend= {'itemsizing': 'constant'})
         fig.write_image(os.path.join(save_dir, f"umap_colour_by_{col}.png"))
         fig.write_html(os.path.join(save_dir, f"umap_colour_by_{col}.html"))
         fig_path_dict[col] = os.path.join(save_dir, f"umap_colour_by_{col}.png")
-        # make legend dots bigger
-        fig.update_layout(legend=dict(itemsizing='constant'))
 
     return embeddings, fig_path_dict
 

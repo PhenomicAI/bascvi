@@ -31,6 +31,7 @@ class MMBAscVI(nn.Module):
         encoder_hidden_dims: list = [128, 64],
         predictor_hidden_dims: list = [256, 128, 64],
         decoder_hidden_dims: list = [64, 128, 256],
+        residual_weight: float = 1.0
     ):
         super().__init__()
 
@@ -52,13 +53,11 @@ class MMBAscVI(nn.Module):
         # 2) Modality predictors and discriminators and batch discriminators
         self.modality_predictor = ModalityPredictor(n_latent, self.n_modalities, predictor_hidden_dims)
 
-        # TODO: Remove this change
         self.batch_discriminator_celltype_list = nn.ModuleList([
             ModalityPredictor(n_latent, d, predictor_hidden_dims)
             for d in self.batch_level_sizes
         ])
 
-        # TODO: Remove this change
         self.batch_discriminator_final_list = nn.ModuleList([
             ModalityPredictor(n_latent, d, predictor_hidden_dims)
             for d in self.batch_level_sizes
@@ -74,7 +73,8 @@ class MMBAscVI(nn.Module):
         self.modality_cross_attention = ModalityCrossAttention(n_latent)
         self.celltype_cross_attention = LearnedTempCellTypeCrossAttention(
                     latent_dim=n_latent,
-                    num_modalities=self.n_modalities
+                    num_modalities=self.n_modalities,
+                    residual_weight=residual_weight
                 )
         # 5) Shared decoder
         self.shared_decoder = SharedDecoder(
@@ -195,9 +195,8 @@ class MMBAscVI(nn.Module):
                 batch_logits_celltype_sub_list.append(logits_c)
             batch_logits_celltype_list.append(batch_logits_celltype_sub_list)
 
-
-        # => [batch_size, num_cell_type_experts, latent_dim]
         z_celltype_stack = torch.stack(z_celltype_list, dim=1)
+        # => [batch_size, num_cell_type_experts, latent_dim]
 
         # ----- 4) Cell-Type Cross-Attention -----
         z_cell_refined, cell_attn_weights = self.celltype_cross_attention(

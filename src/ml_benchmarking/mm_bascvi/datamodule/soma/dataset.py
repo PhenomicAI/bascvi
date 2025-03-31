@@ -127,7 +127,7 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 cell_idx_block = obs_df_block['cell_idx'].to_numpy(dtype=np.int64)
                 soma_joinid_block = obs_df_block["soma_joinid"].to_numpy(dtype=np.int64)
                 
-                modality_idx_block = obs_df_block["modality_idx"].to_numpy() if not self.predict_mode else None
+                modality_idx_block = obs_df_block["modality_idx"].to_numpy() # TODO: implement for predict mode, always need modality to route to right encoder
                 study_idx_block = obs_df_block["study_idx"].to_numpy() if not self.predict_mode else None
                 sample_idx_block = obs_df_block["sample_idx"].to_numpy()
                 
@@ -173,6 +173,8 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                     cell_idx = cell_idx_block[i]
                     sample_idx_curr = sample_idx_block[i]
                     feature_presence_mask = self.feature_presence_matrix[sample_idx_curr, :]
+
+                    modality_idx_curr = modality_idx_block[i]
                     
                     # Create datum dictionary based on mode
                     if self.predict_mode:
@@ -180,10 +182,11 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                             "x": torch.from_numpy(X_curr.astype("int32")),
                             "soma_joinid": torch.tensor(soma_joinid, dtype=torch.int64),
                             "cell_idx": torch.tensor(cell_idx, dtype=torch.int64),
-                            "feature_presence_mask": torch.from_numpy(feature_presence_mask),                
+                            "feature_presence_mask": torch.from_numpy(feature_presence_mask),
+                            "batch_idx": torch.tensor([modality_idx_curr, None, None], dtype=torch.int64),
+                
                         }
                     else:
-                        modality_idx_curr = modality_idx_block[i]
                         study_idx_curr = study_idx_block[i]
                         
                         # Library calculations
