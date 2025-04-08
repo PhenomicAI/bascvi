@@ -359,7 +359,7 @@ def calc_rbni_score(
         'results_by_batch': results_df
     }
 
-def umap_calc_and_save_html(
+def umap_calc_and_plot(
     embeddings: pd.DataFrame,
     emb_columns: List,
     save_dir: str,
@@ -463,6 +463,7 @@ def umap_calc_and_save_html(
 
     size = 3 if embeddings.shape[0] > 5000 else 5
 
+    fig_dict = {}
     fig_path_dict = {}
     for col in color_by_columns:
         fig = px.scatter(embeddings, x='UMAP1', y='UMAP2', color=col, width=1000, height=800, opacity=opacity, title=col)
@@ -472,9 +473,10 @@ def umap_calc_and_save_html(
         fig.update_layout(legend= {'itemsizing': 'constant'})
         fig.write_image(os.path.join(save_dir, f"umap_colour_by_{col}.png"))
         fig.write_html(os.path.join(save_dir, f"umap_colour_by_{col}.html"))
+        fig_dict[col] = fig # os.path.join(save_dir, f"umap_colour_by_{col}.png")
         fig_path_dict[col] = os.path.join(save_dir, f"umap_colour_by_{col}.png")
 
-    return embeddings, fig_path_dict
+    return embeddings, fig_dict, fig_path_dict
 
 # emb = pd.read_csv("/home/ubuntu/scmark/exp_logs/10k_adv_1/train_embeddings.tsv",sep="\t", index_col="index")
 # emb_columns = ["embedding_" + str(i) for i in range(10)]
