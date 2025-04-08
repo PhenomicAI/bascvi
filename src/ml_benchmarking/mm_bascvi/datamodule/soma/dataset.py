@@ -183,7 +183,7 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                             "soma_joinid": torch.tensor(soma_joinid, dtype=torch.int64),
                             "cell_idx": torch.tensor(cell_idx, dtype=torch.int64),
                             "feature_presence_mask": torch.from_numpy(feature_presence_mask),
-                            "batch_idx": torch.tensor([modality_idx_curr, None, None], dtype=torch.int64),
+                            "batch_idx": torch.tensor([modality_idx_curr, -1, -1], dtype=torch.int64),
                 
                         }
                     else:
