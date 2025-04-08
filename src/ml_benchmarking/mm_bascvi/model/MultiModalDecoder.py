@@ -3,7 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ml_benchmarking.mm_bascvi.model.distributions import ZeroInflatedNegativeBinomial
+from ml_benchmarking.mm_bascvi.model.distributions import ZeroInflatedNegativeBinomial, NegativeBinomial
+
 class SharedDecoder(nn.Module):
     """
     A single decoder that reconstructs gene-expression data (or any vector data)
@@ -14,7 +15,7 @@ class SharedDecoder(nn.Module):
       2. Concatenating it to the latent vector 'z', 
       3. Passing that concatenated vector through the MLP.
 
-    This ensures the decoder can adapt to each modality’s nuances within one network,
+    This ensures the decoder can adapt to each modality's nuances within one network,
     but uses one set of "core" parameters overall.
     """
     def __init__(
@@ -56,7 +57,7 @@ class SharedDecoder(nn.Module):
         self.px_r = torch.nn.Parameter(torch.randn(n_input))
 
 
-    def forward(self, z: torch.Tensor, batch_idx: torch.Tensor, library: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, z: torch.Tensor, batch_idx: torch.Tensor, library: torch.Tensor = None, bulk_mask: torch.Tensor = None) -> torch.Tensor:
         """
         Args:
           z: [batch_size, latent_dim]  The shared latent embedding
@@ -80,12 +81,22 @@ class SharedDecoder(nn.Module):
         # Clamp to high value: exp(12) ~ 160000 to avoid nans (computational stability)
         clamp_max = torch.exp(torch.tensor([12.0])).item()
         
-        if library is None:
-            px_rate = px_scale.clamp(max=clamp_max, min=0)  # torch.clamp( , max=12)
-        else:
-            px_rate = (torch.exp(library) * px_scale).clamp(max=clamp_max, min=0)  # torch.clamp( , max=12)
+        # if library is None:
+        px_rate = px_scale.clamp(min=1e-6)
+        px_rate = px_rate.clamp(max=clamp_max)
+        # else:
+            # px_rate = (torch.exp(library) * px_scale).clamp(min=1e-6, max=clamp_max)  # Ensure strictly positive
 
+        # Ensure theta is strictly positive to avoid Gamma distribution errors
+        theta = torch.exp(self.px_r).clamp(min=1e-6)
+
+        px_dropout = torch.sigmoid(px_dropout)
+        
         # Reconstructed expression using ZINB parameters
-        x_reconstructed = -ZeroInflatedNegativeBinomial(mu=px_rate, theta=torch.exp(self.px_r), zi_logits=px_dropout).sample()
+        x_reconstructed = -ZeroInflatedNegativeBinomial(mu=px_rate, theta=theta, zi_logits=px_dropout).sample()
 
-        return x_reconstructed, (px_rate, torch.exp(self.px_r),px_dropout)
+        if bulk_mask is not None:
+            x_bulk_reconstructed = -NegativeBinomial(mu=px_rate, theta=theta).sample()
+            x_reconstructed[bulk_mask] = x_bulk_reconstructed[bulk_mask]
+
+        return x_reconstructed, (px_rate, theta, px_dropout)
