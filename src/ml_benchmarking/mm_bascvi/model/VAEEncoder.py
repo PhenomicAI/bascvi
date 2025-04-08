@@ -7,7 +7,7 @@ class VAEEncoder(nn.Module):
     """
     This encoder produces latent embedding (VAE style).
     """
-    def __init__(self, n_input: int, latent_dim: int, hidden_dims: list = [128, 64]):
+    def __init__(self, n_input: int, latent_dim: int, hidden_dims: list = [128, 64], subset_genes_prop: float = 1.0):
         super().__init__()
         
         layers = []
@@ -21,8 +21,12 @@ class VAEEncoder(nn.Module):
         self.fc_mu = nn.Linear(hidden_dims[-1], latent_dim)
         self.fc_logvar = nn.Linear(hidden_dims[-1], latent_dim)
 
-        self.log_scaling_factor = nn.Parameter(torch.log(torch.tensor(10000.0)))
-
+        # Subset genes
+        self.gene_mask = torch.ones(n_input)
+    
+        if subset_genes_prop < 1.0:
+            perm = torch.randperm(n_input)
+            self.gene_mask[perm[:int(n_input * (1 - subset_genes_prop))]] = 0
 
 
     def reparameterize(self, mu, logvar):
@@ -30,16 +34,15 @@ class VAEEncoder(nn.Module):
             print("NaN detected in reparameterization: mu or logvar contains NaN!")
             raise ValueError("NaN detected in reparameterization!")
         
-        std = torch.exp(0.5 * logvar)  # Convert logvar to standard deviation
+        std = torch.exp(0.5 * logvar).clamp(min=1e-4)  # Convert logvar to standard deviation
         return Normal(mu, std).rsample()
 
     def forward(self, x: torch.Tensor):
 
-        x_sum = x.sum(dim=1, keepdim=True)
-        x_norm = x / (x_sum + 1e-6)
+        self.gene_mask = self.gene_mask.to(x.device)
 
-        # Normalize the input
-        x = torch.log1p(torch.exp(self.log_scaling_factor) * x_norm)
+        # Subset genes
+        x = x * self.gene_mask
 
         # Encode
         h = self.encoder(x)
@@ -51,3 +54,5 @@ class VAEEncoder(nn.Module):
 
         # Return the latent plus (mu, logvar) for VAE losses
         return z, (mu, logvar)
+
+
