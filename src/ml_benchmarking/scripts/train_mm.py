@@ -84,6 +84,7 @@ def train(config: Dict):
 
     # logger.info(f"Initializing pytorch-lightning trainer.....")
     trainer = Trainer(**config["pl_trainer"], logger=wandb_logger, accelerator="gpu", devices=1, num_sanity_val_steps=2)
+
     #trainer.save_checkpoint("latest.ckpt")
 
     # logger.addHandler(logging.FileHandler(os.path.join(cfg["datamodule"]["root_dir"], "std.log")))

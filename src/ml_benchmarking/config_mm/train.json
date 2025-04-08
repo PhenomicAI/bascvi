@@ -1,7 +1,7 @@
 {
   "mode": "train",
 
-  "wandb_project_name": "mm_25Feb2025_med",
+  "wandb_project_name": "mm_25Feb2025_med_2",
 
   "run_save_dir": "../mm_runs/multimode_25Feb2025_med/",
 
@@ -11,7 +11,7 @@
       "soma_experiment_uri": "../data/corpora/multimode_25Feb2025/",
       "barcodes_to_use_path": "../data/barcode_lists/multimode_25Feb2025_train_barcodes_med.pkl",
       "genes_to_use_path": "../data/gene_lists/genes_2ksamples_10cells.txt",
-      "block_size": 128000,
+      "block_size": 64000,
       "random_seed": 1,
       "dataloader_args": {
         "batch_size": 256,
@@ -27,39 +27,48 @@
   },
   "emb_trainer": {
     "model_args": {
-      "n_latent": 16,
-      "n_cell_type_experts": 4,
-      "encoder_hidden_dims": [256, 256],
-      "predictor_hidden_dims": [256, 256],
-      "decoder_hidden_dims": [256, 256],
+      "latent_dim": 16,
+      "ct_latent_dim": 16,
+      "n_cell_type_experts": 10,
+      "modality_encoder_hidden_dims": [512, 256],
+      "ct_encoder_hidden_dims": [256, 128],
+      "predictor_hidden_dims": [128, 64],
+      "decoder_hidden_dims": [128, 256, 512],
       "residual_weight": 0.0
     },
     
     "training_args": {
       "train_library": true,
 
-      "reconstruction_loss_weight": 1000.0,
-      "kl_loss_weight": 1.0,
+      "loss_weights": {
+        "reconstruction": 1000.0,
+        "bulk_reconstruction": 0.0,
+        "kl": 0.01,
+        "ct_discriminator": [10.0, 1.0, 1.0],
+        "z_discriminator": [10.0, 1.0, 1.0],
+        "ct_diversity": 0.0,
+        "ct_regularization": 100.0,
+        "adversarial": 0.1
+      },
 
-      "modality_class_weight": 0.0,
+      "desired_ct_rank": 1,
 
-      "batch_discriminator_ct_weight": 10.0,
-      "batch_discriminator_final_weight": 1.0,
+      "n_steps_kl_ramp ": 50000,
+      "n_steps_adv_ramp": 20000,
+      "n_steps_adv_start": 20000,
 
-      "discriminator_batch_level_weights": [10.0, 1.0, 1.0],
-
-      "diversity_weight": 1000.0,
 
       "save_validation_embeddings": true,
       "save_validation_umaps": true,
+      "downsample_umaps_to_n_cells": 75000,
       "run_validation_metrics": false,
 
       "g_optimizer": {
-        "lr": 1e-4,
+        "lr": 1e-3,
         "weight_decay": 1e-5
       },
       "d_optimizer": {
-        "lr": 1e-4,
+        "lr": 5e-4,
         "weight_decay": 1e-5
       },
 
@@ -67,17 +76,17 @@
     },
     "callbacks_args": {
       "model_checkpoint": {
-        "monitor": "val_loss/loss",
+        "monitor": "val/g/loss",
         "mode": "min"
       },
       "early_stopping": {
-        "monitor": "val_loss/loss",
+        "monitor": "val/g/loss",
         "patience": 5,
         "mode": "min"
       }
     }
   },
   "pl_trainer": {
-    "check_val_every_n_epoch": 2
+    "check_val_every_n_epoch": 1
   }
 }
