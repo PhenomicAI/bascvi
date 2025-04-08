@@ -68,16 +68,17 @@ class LearnedTempCellTypeCrossAttention(nn.Module):
     This way, single-cell domain can learn a lower temperature (sharper distribution),
     while bulk/spatial can learn a higher temperature (softer mixture).
     """
-    def __init__(self, latent_dim: int, num_modalities: int, residual_weight: float = 1.0):
+    def __init__(self, latent_dim: int, ct_latent_dim: int, num_modalities: int, residual_weight: float = 1.0):
         super().__init__()
         self.latent_dim = latent_dim
+        self.ct_latent_dim = ct_latent_dim
         self.num_modalities = num_modalities
         self.residual_weight = residual_weight
 
         # Simple linear layers to project query/key/value
         self.query_proj = nn.Linear(latent_dim, latent_dim)
-        self.key_proj   = nn.Linear(latent_dim, latent_dim)
-        self.value_proj = nn.Linear(latent_dim, latent_dim)
+        self.key_proj   = nn.Linear(ct_latent_dim, latent_dim)
+        self.value_proj = nn.Linear(ct_latent_dim, latent_dim)
 
         # Learnable log-temperatures for each modality, initialized at 0 => exp(0)=1.
         # shape: [num_modalities]
@@ -133,6 +134,16 @@ class LearnedTempCellTypeCrossAttention(nn.Module):
         # gather temperatures for each sample => shape [B]
         sample_log_temps = self.log_temps[modality_idx]   # [B]
         sample_temps     = sample_log_temps.exp()         # [B]
+
+        # Add annealing factor based on global step (new)
+        min_temp = 0.1  # Minimum temperature
+        max_temp = 1.0  # Maximum temperature
+        
+        # Allow cross-attention to become sharper over time
+        if hasattr(self, 'current_epoch'):
+            annealing_factor = min(1.0, self.current_epoch / 10)  # Anneal over 10 epochs
+            effective_temp = min_temp + (max_temp - min_temp) * (1 - annealing_factor)
+            sample_temps = sample_temps * effective_temp
         
         # Expand so we can divide the [B, 1, num_ct] scores
         # shape needed => [B, 1, 1]
