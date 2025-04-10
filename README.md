@@ -2,7 +2,7 @@
 
 ## This repo accompanies the paper "Adversarial learning enables unbiased organism-wide cross-species alignment of single-cell RNA data at scale"
 
-https://www.biorxiv.org/content/10.1101/2024.08.11.607498v2.full
+[arXiv paper](https://arxiv.org/abs/2503.20730v1)
 
 This repo contains three installable modules:
 
