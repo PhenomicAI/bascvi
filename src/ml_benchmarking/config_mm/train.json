@@ -1,17 +1,17 @@
 {
   "mode": "train",
 
-  "wandb_project_name": "mm_25Feb2025_med_2",
+  "wandb_project_name": "mm_25Feb2025_big",
 
-  "run_save_dir": "../mm_runs/multimode_25Feb2025_med/",
+  "run_save_dir": "../mm_runs/multimode_25Feb2025_big/",
 
   "datamodule": {
     "class_name": "TileDBSomaIterDataModule",
     "options": {
       "soma_experiment_uri": "../data/corpora/multimode_25Feb2025/",
-      "barcodes_to_use_path": "../data/barcode_lists/multimode_25Feb2025_train_barcodes_med.pkl",
+      "barcodes_to_use_path": "../data/barcode_lists/multimode_25Feb2025_train_barcodes_big.pkl",
       "genes_to_use_path": "../data/gene_lists/genes_2ksamples_10cells.txt",
-      "block_size": 64000,
+      "block_size": 128000,
       "random_seed": 1,
       "dataloader_args": {
         "batch_size": 256,
@@ -29,10 +29,10 @@
     "model_args": {
       "latent_dim": 16,
       "ct_latent_dim": 16,
-      "n_cell_type_experts": 10,
-      "modality_encoder_hidden_dims": [512, 256],
-      "ct_encoder_hidden_dims": [256, 128],
-      "predictor_hidden_dims": [128, 64],
+      "n_cell_type_experts": 16,
+      "modality_encoder_hidden_dims": [256, 128],
+      "ct_encoder_hidden_dims": [128, 64],
+      "predictor_hidden_dims": [256, 128],
       "decoder_hidden_dims": [128, 256, 512],
       "residual_weight": 0.0
     },
@@ -42,20 +42,20 @@
 
       "loss_weights": {
         "reconstruction": 1000.0,
-        "bulk_reconstruction": 0.0,
-        "kl": 0.01,
-        "ct_discriminator": [10.0, 1.0, 1.0],
-        "z_discriminator": [10.0, 1.0, 1.0],
+        "bulk_reconstruction": 0.01,
+        "kl": 0.1,
+        "ct_discriminator": [100.0, 1.0, 1.0],
+        "z_discriminator": [100.0, 1.0, 1.0],
         "ct_diversity": 0.0,
         "ct_regularization": 100.0,
-        "adversarial": 0.1
+        "adversarial": 0.01
       },
 
       "desired_ct_rank": 1,
 
-      "n_steps_kl_ramp ": 50000,
-      "n_steps_adv_ramp": 20000,
-      "n_steps_adv_start": 20000,
+      "n_steps_kl_ramp ": 40000,
+      "n_steps_adv_ramp": 40000,
+      "n_steps_adv_start": 40000,
 
 
       "save_validation_embeddings": true,
