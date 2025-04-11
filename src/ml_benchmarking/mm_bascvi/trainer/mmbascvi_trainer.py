@@ -96,6 +96,8 @@ class MMBAscVITrainer(pl.LightningModule):
         self.validation_z_modality_refined = []
 
         self.batch_dict_keys = ['modality', 'study', 'sample']
+
+        self.max_validation_samples_umap = 75000
         
         # Create validation_umaps directory if needed
         if os.path.isdir(os.path.join(self.root_dir, "validation_umaps")):
@@ -124,7 +126,8 @@ class MMBAscVITrainer(pl.LightningModule):
         """Forward pass of the underlying MMBAscVI model."""
         x = batch["x"]
         batch_idx = batch["batch_idx"]
-        return self.model(x, batch_idx)
+        bulk_mask = batch["batch_idx"][:, 0] == self.bulk_id
+        return self.model(x, batch_idx, bulk_mask=bulk_mask)
     
 
     def is_in_warmup(self):
@@ -417,6 +420,9 @@ class MMBAscVITrainer(pl.LightningModule):
         # Skip small batches
         if batch["x"].shape[0] < 3:
             return None
+        
+        self.log("trainer/global_step", self.global_step)
+
 
         
         g_opt, d_opt = self.optimizers()
@@ -429,31 +435,12 @@ class MMBAscVITrainer(pl.LightningModule):
         utils.clip_grad_norm_(self.model.parameters(), 1.0) # clip gradients
         g_opt.step()
 
-        d_opt.zero_grad()
-        d_outputs = self.forward(batch)
-        d_loss, d_loss_components = self.compute_loss(d_outputs, batch, optimizer_idx=1)
-        self.manual_backward(d_loss)
-        # clip gradients
-        utils.clip_grad_norm_(self.model.parameters(), 1.0) # clip gradients
-        d_opt.step()
-
         # Log training losses
         g_loss_components["loss"] = g_loss
         train_losses = {f"train/g/{k}": v for k, v in g_loss_components.items()}
         self.log_dict(train_losses)
 
-        # Log discriminator losses
-        d_loss_components["loss"] = d_loss
-        d_losses = {f"train/d/{k}": v for k, v in d_loss_components.items()}
-        self.log_dict(d_losses)
-        
-        # Log trainer metrics
-        # self.log("trainer/kl_warmup_weight", self.kl_warmup_weight)
-        self.log("trainer/global_step", self.global_step)
-
-        # Get current learning rates        
         self.log("trainer/vae_lr", g_opt.param_groups[0]['lr'])
-        self.log("trainer/discriminator_lr", d_opt.param_groups[0]['lr'])
 
         # Log attention temps
         log_temps_per_modality = self.model.celltype_cross_attention.log_temps
@@ -469,26 +456,38 @@ class MMBAscVITrainer(pl.LightningModule):
             "loss_pct/ct_regularization": self.training_args["loss_weights"]["ct_regularization"] * g_loss_components["ct_regularization"].item() / g_loss.item(),
         }
 
-        if not in_warmup_cache:
-            for i in range(len(self.batch_dict_keys)):
-                loss_percentage[f"loss_pct/disc_ct_{self.batch_dict_keys[i]}"] = self.training_args["loss_weights"]["ct_discriminator"][i] * g_loss_components[f"disc_ct_{self.batch_dict_keys[i]}"].item() / g_loss.item()
-                loss_percentage[f"loss_pct/disc_z_{self.batch_dict_keys[i]}"] = self.training_args["loss_weights"]["z_discriminator"][i] * g_loss_components[f"disc_z_{self.batch_dict_keys[i]}"].item() / g_loss.item()
+        if self.training_args['loss_weights']['adversarial'] > 0.0:
+            d_opt.zero_grad()
+            d_opt.zero_grad()
+            d_outputs = self.forward(batch)
+            d_loss, d_loss_components = self.compute_loss(d_outputs, batch, optimizer_idx=1)
+            self.manual_backward(d_loss)
+            # clip gradients
+            utils.clip_grad_norm_(self.model.parameters(), 1.0) # clip gradients
+            d_opt.step()
 
-        
+            # Log discriminator losses
+            d_loss_components["loss"] = d_loss
+            d_losses = {f"train/d/{k}": v for k, v in d_loss_components.items()}
+            self.log_dict(d_losses)
+
+            self.log("trainer/discriminator_lr", d_opt.param_groups[0]['lr'])
+
+            if not in_warmup_cache:
+                for i in range(len(self.batch_dict_keys)):
+                    loss_percentage[f"loss_pct/disc_ct_{self.batch_dict_keys[i]}"] = self.training_args["loss_weights"]["ct_discriminator"][i] * g_loss_components[f"disc_ct_{self.batch_dict_keys[i]}"].item() / g_loss.item()
+                    loss_percentage[f"loss_pct/disc_z_{self.batch_dict_keys[i]}"] = self.training_args["loss_weights"]["z_discriminator"][i] * g_loss_components[f"disc_z_{self.batch_dict_keys[i]}"].item() / g_loss.item()
+
+
         self.log_dict(loss_percentage)
             
         return g_loss
 
     def on_train_epoch_end(self):
         """Called at the end of the training epoch"""
-        # Get the current validation loss to update the schedulers
-        g_scheduler, d_scheduler = self.lr_schedulers()
-        
-        # Step the schedulers based on the validation loss
-        # Note: You may want to save these metrics from your validation step
-        if hasattr(self, 'val_loss'):
-            g_scheduler.step(self.val_loss)
-            d_scheduler.step(self.val_disc_loss if hasattr(self, 'val_disc_loss') else self.val_loss)
+        # Lightning will handle scheduler stepping with the configuration above
+        # No need to manually step schedulers here
+        pass
 
     def validation_step(self, batch, batch_idx):
         """Lightning hook for validation step"""
@@ -506,19 +505,21 @@ class MMBAscVITrainer(pl.LightningModule):
 
         self.log_dict(val_losses, on_step=False, on_epoch=True)
         
-        # For UMAP visualization, extract latent representations
-        z_cell_refined = outputs["z_cell_refined"]
-        z_cell_list = outputs["z_celltype_list"]
-        z_modality_refined = outputs["z_modality_refined"]
-        
-        # Make z float64 dtype to concat properly with soma_joinid
-        z = z_cell_refined.double()
-        
-        if "soma_joinid" in batch:
-            emb_output = torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1)
-            self.validation_z_cell_refined.append(emb_output)
-            self.validation_z_cell_list.append(z_cell_list)
-            self.validation_z_modality_refined.append(z_modality_refined)
+        if len(self.validation_z_cell_refined) < self.max_validation_samples_umap:
+            # For UMAP visualization, extract latent representations
+            z_cell_refined = outputs["z_cell_refined"]
+            z_cell_list = outputs["z_celltype_list"]
+            z_modality_refined = outputs["z_modality_refined"]
+            
+            # Make z float64 dtype to concat properly with soma_joinid
+            z = z_cell_refined.double()
+            
+            if "soma_joinid" in batch:
+                emb_output = torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1)
+                self.validation_z_cell_refined.append(emb_output)
+                self.validation_z_cell_list.append(z_cell_list)
+                self.validation_z_modality_refined.append(z_modality_refined)
+
         return loss
 
     def on_validation_epoch_end(self):
@@ -715,6 +716,7 @@ class MMBAscVITrainer(pl.LightningModule):
             factor=0.5,           # halve the learning rate
             patience=4,           # wait 4 epochs for improvement
             min_lr=1e-6,
+            threshold=1.0
         )
         
         d_optimizer = torch.optim.Adam(self.model.d_params, **self.training_args["d_optimizer"])
@@ -722,8 +724,30 @@ class MMBAscVITrainer(pl.LightningModule):
             d_optimizer,
             mode='min',           
             factor=0.5,           # halve the learning rate
-            patience=8,           # wait 8 epochs for improvement
+            patience=4,           # wait 4 epochs for improvement
             min_lr=1e-6,
+            threshold=1.0
         )
 
-        return [g_optimizer, d_optimizer], [g_scheduler, d_scheduler]
+        return [
+            {
+                "optimizer": g_optimizer,
+                "lr_scheduler": {
+                    "scheduler": g_scheduler,
+                    "monitor": "val/g/loss",  # This tells Lightning which metric to monitor
+                    "interval": "epoch",
+                    "frequency": 1,
+                    "strict": False,  # Set to False to avoid errors if val/g/loss isn't available
+                },
+            },
+            {
+                "optimizer": d_optimizer,
+                "lr_scheduler": {
+                    "scheduler": d_scheduler,
+                    "monitor": "val/d/loss",  # Monitor the discriminator loss for its scheduler
+                    "interval": "epoch",
+                    "frequency": 1,
+                    "strict": False,
+                },
+            },
+        ]
