@@ -70,6 +70,7 @@ class TileDBSomaTorchIterDataset(IterableDataset):
         self.prefetch_threads = []
 
         self.shuffle = shuffle
+        self.last_log_time = 0
 
         assert self.obs_df.soma_joinid.nunique() == self.obs_df.shape[0]
         assert self.obs_df.cell_idx.nunique() == self.obs_df.shape[0]
@@ -306,13 +307,12 @@ class TileDBSomaTorchIterDataset(IterableDataset):
         
         get_time = time.time() - start_time
         
-        # Periodically log consumption
-        if hasattr(self, 'last_consumption_log') and time.time() - self.last_consumption_log > 15:
-            print(f"Worker {self.worker_id} - Consumed item, queue size after: {self.data_queue.qsize()}, get time: {get_time:.6f}s")
-            self.last_consumption_log = time.time()
-        elif not hasattr(self, 'last_consumption_log'):
-            self.last_consumption_log = time.time()
-            print(f"Worker {self.worker_id} - First consumption, queue size after: {self.data_queue.qsize()}")
+        # if queue size is less than 5% of max size, log
+        # and been 15 seconds since last log
+        if self.data_queue.qsize() < self.max_queue_size * 0.05 and time.time() - self.last_log_time > 15:
+            print(f"Worker {self.worker_id} - Queue size: {self.data_queue.qsize()}, max size: {self.max_queue_size}")
+            self.last_log_time = time.time()
+        
         
         return datum
             
