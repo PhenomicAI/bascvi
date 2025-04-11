@@ -52,6 +52,10 @@ class MMBAscVI(nn.Module):
         self.n_studies = batch_level_sizes[1]
         self.n_samples = batch_level_sizes[2]
 
+        self.latent_dim = latent_dim
+        self.ct_latent_dim = ct_latent_dim
+        self.n_cell_type_experts = n_cell_type_experts
+
 
         # 0) GeneNorm per modality
         self.gene_norm_list = nn.ModuleList([
@@ -66,9 +70,8 @@ class MMBAscVI(nn.Module):
         ])
 
         # 2) Batch Discriminators
-
         self.batch_discriminator_celltype_list = nn.ModuleList([
-            BatchDiscriminator(latent_dim, d, predictor_hidden_dims)
+            BatchDiscriminator(ct_latent_dim, d, predictor_hidden_dims)
             for d in self.batch_level_sizes
         ])
 
@@ -116,7 +119,8 @@ class MMBAscVI(nn.Module):
             self.batch_discriminator_final_list.parameters()
             )
 
-    def forward(self, x: torch.Tensor, batch_idx: torch.Tensor):
+
+    def forward(self, x: torch.Tensor, batch_idx: torch.Tensor, bulk_mask: torch.Tensor):
         """
         Args:
             x:           [batch_size, n_input]
@@ -205,7 +209,7 @@ class MMBAscVI(nn.Module):
 
         # ----- 5) Shared Decoder -----
         # Here we decode from the final 'z_cell_refined'
-        x_reconstructed, x_decoder_zinb_params = self.shared_decoder(z_cell_refined, batch_idx)
+        x_reconstructed, x_decoder_zinb_params = self.shared_decoder(z_cell_refined, batch_idx, bulk_mask=bulk_mask)
 
         return {
             # Modality expert:
@@ -226,3 +230,4 @@ class MMBAscVI(nn.Module):
             "x_reconstructed": x_reconstructed,
             "x_decoder_zinb_params": x_decoder_zinb_params
         }
+

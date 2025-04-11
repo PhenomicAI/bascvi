@@ -135,15 +135,15 @@ class LearnedTempCellTypeCrossAttention(nn.Module):
         sample_log_temps = self.log_temps[modality_idx]   # [B]
         sample_temps     = sample_log_temps.exp()         # [B]
 
-        # Add annealing factor based on global step (new)
-        min_temp = 0.1  # Minimum temperature
-        max_temp = 1.0  # Maximum temperature
+        # # Add annealing factor based on global step (new)
+        # min_temp = 0.1  # Minimum temperature
+        # max_temp = 1.0  # Maximum temperature
         
-        # Allow cross-attention to become sharper over time
-        if hasattr(self, 'current_epoch'):
-            annealing_factor = min(1.0, self.current_epoch / 10)  # Anneal over 10 epochs
-            effective_temp = min_temp + (max_temp - min_temp) * (1 - annealing_factor)
-            sample_temps = sample_temps * effective_temp
+        # # Allow cross-attention to become sharper over time
+        # if hasattr(self, 'current_epoch'):
+        #     annealing_factor = min(1.0, self.current_epoch / 10)  # Anneal over 10 epochs
+        #     effective_temp = min_temp + (max_temp - min_temp) * (1 - annealing_factor)
+        #     sample_temps = sample_temps * effective_temp
         
         # Expand so we can divide the [B, 1, num_ct] scores
         # shape needed => [B, 1, 1]

@@ -89,6 +89,7 @@ class SharedDecoder(nn.Module):
 
         # Ensure theta is strictly positive to avoid Gamma distribution errors
         theta = torch.exp(self.px_r).clamp(min=1e-6)
+        theta = theta.clamp(max=1000000)
 
         px_dropout = torch.sigmoid(px_dropout)
         
