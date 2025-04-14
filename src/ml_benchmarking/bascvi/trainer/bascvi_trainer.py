@@ -15,7 +15,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
-from ml_benchmarking.bascvi.utils.utils import umap_calc_and_save_html, calc_kni_score, calc_rbni_score
+from ml_benchmarking.bascvi.utils.utils import umap_calc_and_plot, calc_kni_score, calc_rbni_score
 from ml_benchmarking.bascvi.utils.protein_embeddings import get_stacked_protein_embeddings_matrix, get_centroid_distance_matrix
 
 
@@ -370,7 +370,7 @@ class BAScVITrainer(pl.LightningModule):
 
 
             
-            _, fig_path_dict = umap_calc_and_save_html(embeddings_df.set_index("soma_joinid").join(self.obs_df, how="inner").reset_index(), emb_columns, save_dir, obs_columns, max_cells=100000)
+            _, fig_dict, fig_path_dict = umap_calc_and_plot(embeddings_df.set_index("soma_joinid").join(self.obs_df, how="inner").reset_index(), emb_columns, save_dir, obs_columns, max_cells=100000)
 
             for key, fig_path in fig_path_dict.items():
                 metrics_to_log[key] = wandb.Image(fig_path, caption=key)

@@ -97,7 +97,7 @@ class MMBAscVITrainer(pl.LightningModule):
 
         self.batch_dict_keys = ['modality', 'study', 'sample']
 
-        self.max_validation_samples_umap = 75000
+        self.max_validation_batches_umap = 300 # TODO: change to take into account batch size
         
         # Create validation_umaps directory if needed
         if os.path.isdir(os.path.join(self.root_dir, "validation_umaps")):
@@ -505,7 +505,7 @@ class MMBAscVITrainer(pl.LightningModule):
 
         self.log_dict(val_losses, on_step=False, on_epoch=True)
         
-        if len(self.validation_z_cell_refined) < self.max_validation_samples_umap:
+        if (len(self.validation_z_cell_refined) == 0) or (len(self.validation_z_cell_refined) < self.max_validation_batches_umap):
             # For UMAP visualization, extract latent representations
             z_cell_refined = outputs["z_cell_refined"]
             z_cell_list = outputs["z_celltype_list"]
