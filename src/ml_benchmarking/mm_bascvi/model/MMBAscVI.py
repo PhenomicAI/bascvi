@@ -147,6 +147,9 @@ class MMBAscVI(nn.Module):
         study_idx = batch_idx[:, 1]
         sample_idx = batch_idx[:, 2]
 
+        if torch.isnan(x).any():
+            raise ValueError("NaN detected in input batch!")
+
         # ----- 0) GeneNorm per modality -----
         x_norm_list = []
         for i in range(self.n_modalities):
@@ -154,6 +157,9 @@ class MMBAscVI(nn.Module):
 
         x_norm_true = torch.stack(x_norm_list, dim=1)
         x_norm_true = x_norm_true[torch.arange(x.size(0)), modality_idx]
+
+        if torch.isnan(x_norm_true).any():
+            raise ValueError("NaN detected in x_norm_true!")
 
         # ----- 1) Run each ModalityExpert (Encoders) -----
         # using modality_idx run the modality experts, only run the modality experts for the given modality_idx
