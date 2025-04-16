@@ -40,7 +40,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         exclude_ribo_mito = True,
         train_column: str = None,
         random_seed: int = 42,
-        batch_keys = {"modality": "scrnaseq_protocol", "study": "study_name", "sample": "sample_idx"}
+        batch_keys = {"modality": "scrnaseq_protocol", "study": "study_name", "sample": "sample_name"}
         ):
         super().__init__()
 
@@ -221,24 +221,25 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         # read metadata
         column_names = ["soma_joinid", "barcode", self.batch_keys["study"], self.batch_keys["sample"], self.batch_keys["modality"]]
 
+        # TODO uncomment
         # check if nnz in obs
-        with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-            all_column_names = [i.name for i in soma_experiment.obs.schema] 
+        # with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
+        #     all_column_names = [i.name for i in soma_experiment.obs.schema] 
 
-        if "nnz" in all_column_names:
-            column_names.append("nnz")
+        # if "nnz" in all_column_names:
+        column_names.append("nnz")
 
-        if "log_mean" in all_column_names:
-            column_names.append("log_mean")
-            column_names.append("log_var")
+        # if "log_mean" in all_column_names:
+        column_names.append("log_mean")
+        column_names.append("log_var")
 
         
         if self.train_column:
             column_names.append(self.train_column)
 
-        for c in column_names:
-            if c not in all_column_names:
-                raise ValueError(f"Column {c} not found in soma_experiment")
+        # for c in column_names:
+        #     if c not in all_column_names:
+        #         raise ValueError(f"Column {c} not found in soma_experiment")
         
         with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
             self.obs_df = soma_experiment.obs.read(

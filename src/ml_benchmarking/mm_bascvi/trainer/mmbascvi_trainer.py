@@ -23,11 +23,14 @@ from ml_benchmarking.bascvi.model.distributions import NegativeBinomial
 from ml_benchmarking.bascvi.utils.utils import umap_calc_and_plot, calc_kni_score, calc_rbni_score
 from ml_benchmarking.mm_bascvi.model.distributions import ZeroInflatedNegativeBinomial
 
-
 from ml_benchmarking.mm_bascvi.model.MMBAscVI import MMBAscVI  # Adjust import to your structure
+from ml_benchmarking.mm_bascvi.trainer.AsyncUMAPGenerator import AsyncUMAPGenerator
+from ml_benchmarking.mm_bascvi.model.losses import MMBAscVILoss
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
 
 class MMBAscVITrainer(pl.LightningModule):
     """
@@ -103,6 +106,15 @@ class MMBAscVITrainer(pl.LightningModule):
         if os.path.isdir(os.path.join(self.root_dir, "validation_umaps")):
             shutil.rmtree(os.path.join(self.root_dir, "validation_umaps"))
 
+        self.async_umap = AsyncUMAPGenerator()
+
+        # Initialize loss calculator
+        self.loss_calculator = MMBAscVILoss(
+            loss_weights=training_args.get("loss_weights", {}),
+            bulk_id=self.bulk_id,
+            training_args=training_args
+        )
+
     def configure_callbacks(self):
         """Configure callbacks for training (checkpointing, early stopping)"""
         self.checkpoint_callback = ModelCheckpoint(
@@ -130,292 +142,10 @@ class MMBAscVITrainer(pl.LightningModule):
         return self.model(x, batch_idx, bulk_mask=bulk_mask)
     
 
-    def is_in_warmup(self):
-        """Helper to check if we're in warm-up phase"""
-        return self.global_step < self.n_steps_adv_start
-    
-
-    def _get_kld_cycle(self, epoch, period=20):
-        '''
-        0-10: 0 to 1
-        10-20 1
-        21-30 0 to 1
-        30-40 1
-        '''
-        ct = epoch % period
-        pt = epoch % (period//2)
-        if ct >= period//2:
-            return 1
-        else:
-            return min(1, (pt) / (period//2))
-
-    def get_loss_weights(self):
-        """Calculate dynamic loss weights based on training progress"""
-        base_weights = self.training_args.get("loss_weights", {})
-
-        # Default weights if not specified
-        weights = {
-            "reconstruction": 1000.0,
-            "kl": 1.0,
-            "ct_diversity": 1.0,
-            "ct_regularization": 1.0,
-            "adversarial": 1.0
-        }
-
-        # Use defaults for any missing weights
-        weights.update(base_weights)
-        
-        # Apply KL ramp if configured
-        if self.n_steps_kl_ramp > 0 and self.global_step < self.n_steps_kl_ramp:
-            ramp_factor = self.global_step / self.n_steps_kl_ramp
-            weights["kl"] *= ramp_factor
-        
-        # Apply adversarial weight adjustment
-        if self.global_step < self.n_steps_adv_start:
-            weights["adversarial"] = 0.0
-        elif self.global_step < self.n_steps_adv_start + self.n_steps_adv_ramp:
-            ramp_factor = (self.global_step - self.n_steps_adv_start) / self.n_steps_adv_ramp
-            weights["adversarial"] *= ramp_factor
-        
-        return weights
-    
-    def compute_reconstruction_loss(self, x_decoder_zinb_params, x, feature_presence_mask, modality_idx) -> torch.Tensor:
-        """Compute reconstruction loss between x_reconstructed and x"""
-
-        px_rate, px_r, px_dropout = x_decoder_zinb_params
-
-
-        # compute log_prob for bulk and non-bulk
-        log_prob = -ZeroInflatedNegativeBinomial(mu=px_rate, theta=px_r, zi_logits=px_dropout).log_prob(x)
-        
-        if self.bulk_id is not None:
-            bulk_mask = (modality_idx == self.bulk_id)
-
-            log_prob_bulk = -NegativeBinomial(mu=px_rate, theta=px_r).log_prob(x)
-
-            # weight the bulk loss by 0
-            log_prob_bulk = log_prob_bulk * self.training_args["loss_weights"]["bulk_reconstruction"]
-
-            # reshape bulk_mask to match log_prob shape
-            expanded_bulk_mask = bulk_mask.unsqueeze(-1).expand(-1, log_prob.size(1))
-
-            log_prob = torch.where(expanded_bulk_mask, log_prob_bulk, log_prob)
-
-        return torch.mean(log_prob * feature_presence_mask)
-
-    def compute_vae_kl_loss(self, mod_vae_params, cell_vae_params):
-        """Compute KL divergence loss for both modality and cell-type VAEs"""
-        mod_kl_loss = 0.0
-        # Sum across all modality experts
-        # mod_vae_params shape: [batch_size, 2, latent_dim]
-        mu = mod_vae_params[:, 0, :].squeeze(1)
-        logvar = mod_vae_params[:, 1, :].squeeze(1)
-        kl = 0.5 * torch.sum(logvar.exp() + mu**2 - 1.0 - logvar, dim=1).mean()
-        mod_kl_loss += kl
-
-        cell_kl_loss = 0.0
-        # Sum across all cell-type experts
-        for (mu, logvar) in cell_vae_params:
-            kl = 0.5 * torch.sum(logvar.exp() + mu**2 - 1.0 - logvar, dim=1).mean()
-            cell_kl_loss += kl
-        #cell_kl_loss = cell_kl_loss / len(cell_vae_params)
-
-        kl_loss = (mod_kl_loss + cell_kl_loss) / (len(cell_vae_params) + 1)
-
-        return kl_loss
-    
-    def compute_batch_classification_loss(self, batch_logits, batch_idx):
-        """Compute batch classification loss"""
-        return nn.functional.cross_entropy(batch_logits, batch_idx)
-    
-    def compute_batch_discriminator_accuracy(self, batch_logits, batch_idx):
-        """Compute batch classification accuracy from BatchDiscriminator"""
-        return (batch_logits.argmax(dim=1) == batch_idx).float().mean()
-    
-    def compute_celltype_diversity_loss(self, z_celltype_list):
-        """Modified to penalize similarity between experts"""
-        # Convert list to tensor if it's a list of celltype experts
-        if isinstance(z_celltype_list, list):
-            z_celltype_tensor = torch.stack(z_celltype_list, dim=1)
-        else:
-            z_celltype_tensor = z_celltype_list
-        
-        # Get dimensions
-        batch_size, num_celltypes, latent_dim = z_celltype_tensor.shape
-        
-        # Normalize each embedding vector
-        z_norm = F.normalize(z_celltype_tensor, p=2, dim=2)
-        
-        # Reshape to prepare for batch matrix multiplication
-        # [batch_size, num_celltypes, latent_dim] -> [batch_size, num_celltypes, latent_dim]
-        z_a = z_norm
-        # [batch_size, num_celltypes, latent_dim] -> [batch_size, latent_dim, num_celltypes]
-        z_b = z_norm.transpose(1, 2)
-        
-        # Batch matrix multiplication to get cosine similarities for all samples at once
-        # [batch_size, num_celltypes, num_celltypes]
-        cosine_sim = torch.bmm(z_a, z_b)
-        
-        # Create identity matrix and expand to batch size
-        identity = torch.eye(num_celltypes, device=cosine_sim.device)
-        identity = identity.unsqueeze(0).expand(batch_size, -1, -1)
-        
-        # Create mask for off-diagonal elements
-        mask = torch.ones_like(identity) - identity
-        
-        # Apply mask to get only off-diagonal similarities
-        off_diag_sim = cosine_sim * mask
-        
-        # Square the similarities to penalize high similarity more strongly
-        # We want to minimize similarity, not maximize it
-        squared_sim = off_diag_sim ** 2
-        
-        # Sum across the off-diagonal elements for each sample
-        sample_losses = squared_sim.sum(dim=(1, 2))
-        
-        # Average across the batch
-        avg_loss = sample_losses.mean()
-        
-        return avg_loss
-
-    def compute_ct_low_rank_regularization(self, z_celltype_list):
-        # Stack if needed
-        if isinstance(z_celltype_list, list):
-            z_batch = torch.stack(z_celltype_list, dim=1)
-        else:
-            z_batch = z_celltype_list
-        
-        
-        batch_size, num_celltypes, latent_dim = z_batch.shape
-        desired_rank = self.training_args.get("desired_ct_rank", 2)
-        total_rank_loss = 0.0
-        
-        for ct_idx in range(num_celltypes):
-            z_ct = z_batch[:, ct_idx, :]
-            z_centered = z_ct - z_ct.mean(dim=0, keepdim=True)
-            
-            # Compute covariance matrix (much faster than SVD)
-            cov = torch.matmul(z_centered.t(), z_centered) / (batch_size - 1)
-            
-            # Get eigenvalues (faster than full SVD)
-            eigenvalues = torch.linalg.eigvalsh(cov)
-            eigenvalues = eigenvalues.flip(0)  # Sort descending
-            
-            # Penalize eigenvalues after desired rank
-            ct_rank_loss = torch.sum(eigenvalues[desired_rank:])
-            total_rank_loss += ct_rank_loss
-        
-        return total_rank_loss / num_celltypes
-    
-    def compute_loss(self, outputs, batch, optimizer_idx=0):
-        """Combined loss function for MMBAscVI model"""
-        # 1) Unpack needed model outputs
-        mod_vae_params = outputs["modality_vae_params"]
-
-        z_celltype_list = outputs["z_celltype_list"]
-        cell_vae_params = outputs["celltype_vae_params"]
-
-        disc_ct_logits_list = outputs["disc_ct_logits_list"]
-        disc_z_logits_list = outputs["disc_z_logits_list"]
-
-        x_decoder_zinb_params = outputs["x_decoder_zinb_params"]
-        
-        # Extract batch data
-        x = batch["x"]
-        feature_presence_mask = batch["feature_presence_mask"]
-
-        modality_idx = batch["batch_idx"][:, 0]
-        study_idx = batch["batch_idx"][:, 1]
-        sample_idx = batch["batch_idx"][:, 2]
-        batch_idx_dict = {"modality": modality_idx, "study": study_idx, "sample": sample_idx}
-
-        # Get weights from training args
-        loss_weights = self.get_loss_weights()
-
-        loss_components_dict = {}
-
-        # Generator Step
-        if optimizer_idx == 0:
-            # Compute losses
-
-            # Reconstruction Loss
-            loss_components_dict["reconstruction"] = self.compute_reconstruction_loss(x_decoder_zinb_params, x, feature_presence_mask, modality_idx)
-
-            # KL on Modality and Celltype VAEs 
-            loss_components_dict["kl"] = self.compute_vae_kl_loss(mod_vae_params, cell_vae_params)
-
-            # Celltype Diversity
-            loss_components_dict["ct_diversity"] = self.compute_celltype_diversity_loss(z_celltype_list)
-
-            # Celltype Low Rank Regularization
-            loss_components_dict["ct_regularization"] = self.compute_ct_low_rank_regularization(z_celltype_list)
-
-            total_loss = (
-                loss_weights["reconstruction"] * loss_components_dict["reconstruction"] + 
-                loss_weights["kl"] * loss_components_dict["kl"] +
-                loss_weights["ct_diversity"] * loss_components_dict["ct_diversity"] +
-                loss_weights["ct_regularization"] * loss_components_dict["ct_regularization"]
-            )
-            
-            # Adversarial Step
-            if not self.is_in_warmup():
-                # Batch Discriminator Celltype
-                temp_disc_ct_loss_dict = {"modality": 0.0, "study": 0.0, "sample": 0.0}
-                for i in range(len(batch_idx_dict.keys())):             # iterate over batch levels
-                    for j in range(len(disc_ct_logits_list)):            # iterate over celltype experts
-                        temp_disc_ct_loss_dict[self.batch_dict_keys[i]] += self.compute_batch_classification_loss(disc_ct_logits_list[j][i], batch_idx_dict[self.batch_dict_keys[i]])
-                    # Mean over celltype experts and add to loss components dict
-                    loss_components_dict[f"disc_ct_{self.batch_dict_keys[i]}"] = temp_disc_ct_loss_dict[self.batch_dict_keys[i]] / len(disc_ct_logits_list)
-                
-                # Batch Discriminator Final Embedding
-                for i in range(len(batch_idx_dict.keys())):
-                    loss_components_dict[f"disc_z_{self.batch_dict_keys[i]}"] = self.compute_batch_classification_loss(disc_z_logits_list[i], batch_idx_dict[self.batch_dict_keys[i]])
-
-                # Discriminator Loss (negative)
-                for i in range(len(self.batch_dict_keys)):
-                    total_loss -= loss_weights["adversarial"] * loss_weights["ct_discriminator"][i] * loss_components_dict[f"disc_ct_{self.batch_dict_keys[i]}"] 
-                    total_loss -= loss_weights["adversarial"] * loss_weights["z_discriminator"][i] * loss_components_dict[f"disc_z_{self.batch_dict_keys[i]}"] 
-
-            
-        # Discriminator Step
-        elif optimizer_idx == 1:
-
-            # Batch Discriminator Celltype
-            temp_disc_ct_loss_dict = {"modality": 0.0, "study": 0.0, "sample": 0.0}
-            for i in range(len(batch_idx_dict.keys())):             # iterate over batch levels
-                for j in range(len(disc_ct_logits_list)):            # iterate over celltype experts
-                    temp_disc_ct_loss_dict[self.batch_dict_keys[i]] += self.compute_batch_classification_loss(disc_ct_logits_list[j][i], batch_idx_dict[self.batch_dict_keys[i]])
-                # Mean over celltype experts and add to loss components dict
-                loss_components_dict[f"disc_ct_{self.batch_dict_keys[i]}"] = temp_disc_ct_loss_dict[self.batch_dict_keys[i]] / len(disc_ct_logits_list)
-            
-
-            # Batch Discriminator Final Embedding
-            for i in range(len(batch_idx_dict.keys())):
-                loss_components_dict[f"disc_z_{self.batch_dict_keys[i]}"] = self.compute_batch_classification_loss(disc_z_logits_list[i], batch_idx_dict[self.batch_dict_keys[i]])
-
-
-            # Discriminator Accuracy
-            temp_disc_ct_loss_dict = {"modality": 0.0, "study": 0.0, "sample": 0.0}
-            for i in range(len(batch_idx_dict.keys())):             # iterate over batch levels
-                for j in range(len(disc_ct_logits_list)):            # iterate over celltype experts
-                    temp_disc_ct_loss_dict[self.batch_dict_keys[i]] += self.compute_batch_discriminator_accuracy(disc_ct_logits_list[j][i], batch_idx_dict[self.batch_dict_keys[i]])
-                # Mean over celltype experts and add to loss components dict
-                loss_components_dict[f"acc/disc_ct_{self.batch_dict_keys[i]}"] = temp_disc_ct_loss_dict[self.batch_dict_keys[i]] / len(disc_ct_logits_list)
-            for i in range(len(batch_idx_dict.keys())):
-                loss_components_dict[f"acc/disc_z_{self.batch_dict_keys[i]}"] = self.compute_batch_discriminator_accuracy(disc_z_logits_list[i], batch_idx_dict[self.batch_dict_keys[i]])
-
-            # Final Discriminator Loss (positive)
-            total_loss = 0.0
-            for i in range(len(self.batch_dict_keys)):
-                total_loss += loss_weights["ct_discriminator"][i] * loss_components_dict[f"disc_ct_{self.batch_dict_keys[i]}"]
-                total_loss += loss_weights["z_discriminator"][i] * loss_components_dict[f"disc_z_{self.batch_dict_keys[i]}"]
-
-        return total_loss, loss_components_dict
-
     def training_step(self, batch, batch_idx):
         """Lightning hook that runs one training step"""
 
-        in_warmup_cache = self.is_in_warmup()
+        in_warmup_cache = self.loss_calculator.is_in_warmup(self.global_step)
 
         # Skip small batches
         if batch["x"].shape[0] < 3:
@@ -423,14 +153,12 @@ class MMBAscVITrainer(pl.LightningModule):
         
         self.log("trainer/global_step", self.global_step)
 
-
-        
         g_opt, d_opt = self.optimizers()
         g_scheduler, d_scheduler = self.lr_schedulers()
 
         g_opt.zero_grad()
         g_outputs = self.forward(batch)
-        g_loss, g_loss_components = self.compute_loss(g_outputs, batch, optimizer_idx=0)
+        g_loss, g_loss_components = self.loss_calculator.compute_loss(g_outputs, batch, optimizer_idx=0, global_step=self.global_step)
         self.manual_backward(g_loss)
         utils.clip_grad_norm_(self.model.parameters(), 1.0) # clip gradients
         g_opt.step()
@@ -458,12 +186,10 @@ class MMBAscVITrainer(pl.LightningModule):
 
         if self.training_args['loss_weights']['adversarial'] > 0.0:
             d_opt.zero_grad()
-            d_opt.zero_grad()
             d_outputs = self.forward(batch)
-            d_loss, d_loss_components = self.compute_loss(d_outputs, batch, optimizer_idx=1)
+            d_loss, d_loss_components = self.loss_calculator.compute_loss(d_outputs, batch, optimizer_idx=1, global_step=self.global_step)
             self.manual_backward(d_loss)
-            # clip gradients
-            utils.clip_grad_norm_(self.model.parameters(), 1.0) # clip gradients
+            utils.clip_grad_norm_(self.model.parameters(), 1.0)
             d_opt.step()
 
             # Log discriminator losses
@@ -492,8 +218,8 @@ class MMBAscVITrainer(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         """Lightning hook for validation step"""
         outputs = self.forward(batch)
-        loss, loss_components = self.compute_loss(outputs, batch)
-        disc_loss, disc_loss_components = self.compute_loss(outputs, batch, optimizer_idx=1)
+        loss, loss_components = self.loss_calculator.compute_loss(outputs, batch, optimizer_idx=0, global_step=self.global_step)
+        disc_loss, disc_loss_components = self.loss_calculator.compute_loss(outputs, batch, optimizer_idx=1, global_step=self.global_step)
 
         # Log encoder losses
         loss_components["loss"] = loss
@@ -505,7 +231,7 @@ class MMBAscVITrainer(pl.LightningModule):
 
         self.log_dict(val_losses, on_step=False, on_epoch=True)
         
-        if (len(self.validation_z_cell_refined) == 0) or (len(self.validation_z_cell_refined) < self.max_validation_batches_umap):
+        if self.save_validation_umaps and ((len(self.validation_z_cell_refined) == 0) or (len(self.validation_z_cell_refined) < self.max_validation_batches_umap)):
             # For UMAP visualization, extract latent representations
             z_cell_refined = outputs["z_cell_refined"]
             z_cell_list = outputs["z_celltype_list"]
@@ -532,47 +258,42 @@ class MMBAscVITrainer(pl.LightningModule):
         
         metrics_to_log = {}
 
+        # Just check status of pending UMAP tasks
+        pending_count = self.async_umap.check_pending()
+        if pending_count > 0:
+            logger.info(f"Currently {pending_count} UMAP generation tasks pending")
+
         if self.save_validation_umaps and self.validation_z_cell_refined:
-            logger.info("Running validation UMAP...")
+            logger.info("Submitting validation UMAP tasks asynchronously...")
             embeddings = torch.cat(self.validation_z_cell_refined, dim=0).double().detach().cpu().numpy()
             emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 1)] 
             embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["soma_joinid"])
 
             soma_joinid = embeddings_df["soma_joinid"].values
 
-            # sample rows for UMAP
+            # Sample rows for UMAP
             if embeddings_df.shape[0] > self.training_args.get("downsample_umaps_to_n_cells", 100000):
                 downsampled_idx = np.random.choice(embeddings_df.shape[0], size=self.training_args.get("downsample_umaps_to_n_cells", 100000), replace=False)
             else:
                 downsampled_idx = np.arange(embeddings_df.shape[0])
 
-            # Recursively concatenate the list of tensors for cell type embeddings
+            # Process cell type embeddings
             ct_embeddings_list = []
             for batch_embeddings in self.validation_z_cell_list:
-                # Each batch_embeddings is a list of tensors, one for each cell type expert
-                # We need to stack them to get [batch_size, num_celltype_experts, latent_dim]
                 stacked_batch = torch.stack(batch_embeddings, dim=1)
                 ct_embeddings_list.append(stacked_batch)
             
-            # Now concatenate along the batch dimension
-            ct_embeddings = torch.cat(ct_embeddings_list, dim=0).double().detach().cpu().numpy()  # [num_validation_samples, num_celltype_experts, num_latent_dims]
+            ct_embeddings = torch.cat(ct_embeddings_list, dim=0).double().detach().cpu().numpy()
             num_celltype_experts = ct_embeddings.shape[1]
             num_ct_latent_dims = ct_embeddings.shape[2]
 
-
-            # Modality UMAPs
+            # Modality embeddings
             modality_embeddings = torch.cat(self.validation_z_modality_refined, dim=0).double().detach().cpu().numpy()
             modality_df = pd.DataFrame(data=modality_embeddings, columns=emb_columns)
             modality_df["soma_joinid"] = soma_joinid
 
-           
             save_dir = os.path.join(self.root_dir, "validation_umaps", str(self.valid_counter))
-            os.makedirs(save_dir, exist_ok=True)
-
-
             obs_columns = ["standard_true_celltype", "study_name", "sample_name", "scrnaseq_protocol", "tissue_collected"]
-            # if "species" not in obs_columns:
-            #     obs_columns.append("species")
 
             if self.obs_df is None and self.soma_experiment_uri:
                 with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
@@ -580,58 +301,54 @@ class MMBAscVITrainer(pl.LightningModule):
                     self.obs_df = self.obs_df.set_index("soma_joinid")
             
             if self.obs_df is not None:
-                # if "species" not in self.obs_df.columns:
-                #     logger.info("Adding species column to obs, assuming human data")
-                #     self.obs_df["species"] = "human"
-
-                #     # assign species based on study_name
-                #     self.obs_df.loc[self.obs_df["study_name"].str.contains("_m-"), "species"] = "mouse"
-                #     self.obs_df.loc[self.obs_df["study_name"].str.contains("_r-"), "species"] = "rat"
-                #     self.obs_df.loc[self.obs_df["study_name"].str.contains("_l-"), "species"] = "lemur"
-                #     self.obs_df.loc[self.obs_df["study_name"].str.contains("_c-"), "species"] = "macaque"
-                #     self.obs_df.loc[self.obs_df["study_name"].str.contains("_f-"), "species"] = "fly"
-                #     self.obs_df.loc[self.obs_df["study_name"].str.contains("_a-"), "species"] = "axolotl"
-                #     self.obs_df.loc[self.obs_df["study_name"].str.contains("_z-"), "species"] = "zebrafish"
-                
-
-
-                _, _, fig_path_dict = umap_calc_and_plot(
-                    embeddings_df.iloc[downsampled_idx].set_index("soma_joinid").join(self.obs_df, how="inner").reset_index(),
-                    emb_columns, save_dir, obs_columns, max_cells=200000, opacity=max((1 - embeddings_df.iloc[downsampled_idx].shape[0] / 100000), 0.3) # more opacity for fewer cells
-                ) 
-                for key, fig_path in fig_path_dict.items():
-                    metrics_to_log[f"z/{key}"] = wandb.Image(fig_path)
-
-                modality_save_dir = os.path.join(save_dir, "modality_umaps")
-                os.makedirs(modality_save_dir, exist_ok=True)
-
-                # Modality UMAPs
-                _, _, fig_path_dict = umap_calc_and_plot(
-                    modality_df.iloc[downsampled_idx].set_index("soma_joinid").join(self.obs_df, how="inner").reset_index(),
-                    emb_columns, modality_save_dir, obs_columns, max_cells=200000, opacity=max((1 - modality_df.iloc[downsampled_idx].shape[0] / 100000), 0.3) # more opacity for fewer cells
+                # Submit main embeddings UMAP task - now with direct wandb logging
+                self.async_umap.submit_umap_task(
+                    key_prefix="z",
+                    embeddings_df=embeddings_df.iloc[downsampled_idx].set_index("soma_joinid").join(self.obs_df, how="inner").reset_index(),
+                    emb_columns=emb_columns,
+                    save_dir=save_dir,
+                    obs_df=self.obs_df,
+                    obs_columns=obs_columns,
+                    epoch=self.current_epoch,
+                    step=self.global_step,
+                    max_cells=100000,
+                    opacity=max((1 - embeddings_df.iloc[downsampled_idx].shape[0] / 100000), 0.2)
                 )
-                for key, fig_path in fig_path_dict.items():
-                    metrics_to_log[f"modality/{key}"] = wandb.Image(fig_path)
 
+                # Submit modality embeddings UMAP task
+                modality_save_dir = os.path.join(save_dir, "modality_umaps")
+                self.async_umap.submit_umap_task(
+                    key_prefix="modality",
+                    embeddings_df=modality_df.iloc[downsampled_idx].set_index("soma_joinid").join(self.obs_df, how="inner").reset_index(),
+                    emb_columns=emb_columns,
+                    save_dir=modality_save_dir,
+                    obs_df=self.obs_df,
+                    obs_columns=obs_columns,
+                    epoch=self.current_epoch,
+                    step=self.global_step,
+                    max_cells=100000,
+                    opacity=max((1 - modality_df.iloc[downsampled_idx].shape[0] / 100000), 0.2)
+                )
 
-                # Celltype UMAPs
-                for i in range(min(num_celltype_experts, 10)): # only plot first 10 celltype experts
+                # Submit celltype embeddings UMAP tasks
+                for i in range(min(num_celltype_experts, 10)):
                     ct_save_dir = os.path.join(save_dir, "celltype_umaps", f"ct_{i}")
-                    os.makedirs(ct_save_dir, exist_ok=True)
                     ct_emb_columns = [f"ct_{i}_dim_{j}" for j in range(num_ct_latent_dims)]
                     ct_df = pd.DataFrame(data=ct_embeddings[:, i, :], columns=ct_emb_columns)
-                    
                     ct_df["soma_joinid"] = soma_joinid
 
-                    _, _, fig_path_dict = umap_calc_and_plot(
-                        ct_df.iloc[downsampled_idx].set_index("soma_joinid").join(self.obs_df, how="inner").reset_index(),
-                        ct_emb_columns, ct_save_dir, obs_columns, max_cells=200000, opacity=max((1 - ct_df.iloc[downsampled_idx].shape[0] / 100000), 0.3) # more opacity for fewer cells
+                    self.async_umap.submit_umap_task(
+                        key_prefix=f"ct_{i}",
+                        embeddings_df=ct_df.iloc[downsampled_idx].set_index("soma_joinid").join(self.obs_df, how="inner").reset_index(),
+                        emb_columns=ct_emb_columns,
+                        save_dir=ct_save_dir,
+                        obs_df=self.obs_df,
+                        obs_columns=obs_columns,
+                        epoch=self.current_epoch,
+                        step=self.global_step,
+                        max_cells=100000,
+                        opacity=max((1 - ct_df.iloc[downsampled_idx].shape[0] / 100000), 0.2)
                     )
-                    # update fig_dict keys to include celltype expert index
-                    fig_path_dict = {f"ct_{i}/{k}": v for k, v in fig_path_dict.items()}
-                    for key, fig_path in fig_path_dict.items():
-                        # log as Image 
-                        metrics_to_log[key] = wandb.Image(fig_path)
 
                 if self.save_validation_embeddings:
                     # remove old embeddings
@@ -681,9 +398,9 @@ class MMBAscVITrainer(pl.LightningModule):
         self.validation_z_cell_list = []
         self.validation_z_modality_refined = []
         
-        # Log metrics to wandb
+        # Log any metrics calculated synchronously
         if metrics_to_log:
-            wandb.log(metrics_to_log)
+            wandb.log(metrics_to_log, step=self.global_step)
 
     def test_step(self, batch, batch_idx):
         """Lightning hook for test step"""

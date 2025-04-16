@@ -2,6 +2,7 @@ import os
 import logging
 import pandas as pd
 from typing import Dict
+import time
 
 import torch
 import wandb
@@ -28,16 +29,10 @@ def train(config: Dict):
     wandb.init(project=config["wandb_project_name"], dir=config["run_save_dir"], config=config)
 
     # for tiledb
-    torch.multiprocessing.set_start_method("fork", force=True)
-    orig_start_method = torch.multiprocessing.get_start_method()
-    if orig_start_method != "spawn":
-        if orig_start_method:
-            print(
-                "switching torch multiprocessing start method from "
-                f'"{torch.multiprocessing.get_start_method()}" to "spawn"'
-            )
+    if torch.multiprocessing.get_start_method() != "spawn":
         torch.multiprocessing.set_start_method("spawn", force=True)
 
+    datamodule_time_start = time.time()
 
     if config["datamodule"]["class_name"] == "TileDBSomaIterDataModule":
         config["datamodule"]["options"]["root_dir"] = config["run_save_dir"]
@@ -51,7 +46,10 @@ def train(config: Dict):
         raise NotImplementedError("Training with AnnDataDataModule is not implemented yet")
         datamodule = AnnDataDataModule(**config["datamodule"]["options"])
 
-    datamodule.setup()
+    datamodule.setup(stage="fit")
+
+    datamodule_time_end = time.time()
+    logger.info(f"Datamodule setup time: {datamodule_time_end - datamodule_time_start} seconds")
 
     # set the model gene list from the datamodule
     config['emb_trainer']['gene_list'] = datamodule.gene_list
@@ -61,8 +59,9 @@ def train(config: Dict):
     config['emb_trainer']['model_args']['batch_level_sizes'] = datamodule.batch_level_sizes
     config['emb_trainer']['modalities_idx_to_name_dict'] = datamodule.modalities_idx_to_name_dict
 
-
     config["emb_trainer"]["soma_experiment_uri"] = datamodule.soma_experiment_uri
+
+    model_time_start = time.time()
 
     if config.get("load_from_checkpoint"):
         logger.info(f"Loading trainer from checkpoint.....")
@@ -85,13 +84,13 @@ def train(config: Dict):
     # logger.info(f"Initializing pytorch-lightning trainer.....")
     trainer = Trainer(**config["pl_trainer"], logger=wandb_logger, accelerator="gpu", devices=1, num_sanity_val_steps=2)
 
-    #trainer.save_checkpoint("latest.ckpt")
+    model_time_end = time.time()
+    logger.info(f"Model setup time: {model_time_end - model_time_start} seconds")
 
-    # logger.addHandler(logging.FileHandler(os.path.join(cfg["datamodule"]["root_dir"], "std.log")))
 
 
     logger.info("-----------------------Starting training-----------------------")
-    trainer.fit(model, datamodule=datamodule) # Hit ctrl C to trigger predict as soon as training starts - Hack but avoids a lot of extra code
+    trainer.fit(model, train_dataloaders=datamodule.train_dataloader(), val_dataloaders=datamodule.val_dataloader()) 
     logger.info(f"Best model path: {trainer.checkpoint_callback.best_model_path}")
     logger.info(f"Best model score: {trainer.checkpoint_callback.best_model_score}")
 

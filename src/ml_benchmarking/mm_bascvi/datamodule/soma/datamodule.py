@@ -40,7 +40,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         exclude_ribo_mito = True,
         train_column: str = None,
         random_seed: int = 42,
-        batch_keys = {"modality": "scrnaseq_protocol", "study": "study_name", "sample": "sample_idx"}
+        batch_keys = {"modality": "scrnaseq_protocol", "study": "study_name", "sample": "sample_idx"},
+        dataset_args: Dict = {}
         ):
         super().__init__()
 
@@ -61,8 +62,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         self.train_column = train_column
         self.random_seed = random_seed
         self.batch_keys = batch_keys
-
-    
+        self.dataset_args = dataset_args
 
     def filter_and_generate_library_calcs(self, iterative = True):
 
@@ -449,12 +449,10 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.obs_df = self.obs_df.sample(frac=1, random_state=self.random_seed).reset_index(drop=True)
 
         # calculate num blocks
-        MIN_VAL_BLOCKS = 2
         if self.block_size > self.obs_df.shape[0] // 5:
             self.block_size = self.obs_df.shape[0] // 5
         self.num_total_blocks = math.ceil(self.obs_df.shape[0] / self.block_size) 
 
-        # divide blocks into train test
         if self.num_total_blocks < self.dataloader_args['num_workers']:
             self.dataloader_args['num_workers'] = self.num_total_blocks
 
@@ -486,10 +484,17 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             
             print("Stage = Fitting")
             
-            self.val_blocks = max(self.num_total_blocks//5, MIN_VAL_BLOCKS)
+            if self.obs_df.shape[0] > 1000000:
+                # val blocks, max 100,000 cells
+                self.val_blocks = math.ceil(100000 / self.block_size)
+            else:
+                # val blocks, 20% of total blocks, min 1
+                self.val_blocks = math.ceil(self.num_total_blocks * 0.2)
+
             self.train_blocks = self.num_total_blocks - self.val_blocks
         
-            print('# Blocks: ', self.num_total_blocks, ' # for Training: ', self.train_blocks)
+            print('# Blocks: ', self.num_total_blocks, ' # for Training: ', self.train_blocks, ' # for Validation: ', self.val_blocks)
+            print('# Training Cells: ', self.obs_df[ : self.train_blocks * self.block_size].shape[0], ' # Validation Cells: ', self.obs_df[self.train_blocks * self.block_size : ].shape[0])
            
             self.train_dataset = TileDBSomaTorchIterDataset(
                 soma_experiment_uri=self.soma_experiment_uri,
@@ -504,7 +509,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
                 num_samples=self.num_samples,
                 num_workers=self.dataloader_args['num_workers'],
                 verbose = self.verbose,
-                shuffle=True
+                shuffle=True,
+                **self.dataset_args
             )
             self.val_dataset = TileDBSomaTorchIterDataset(
                 soma_experiment_uri=self.soma_experiment_uri,
@@ -518,7 +524,8 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
                 num_studies=self.num_studies,
                 num_samples=self.num_samples,
                 num_workers=self.dataloader_args['num_workers'],
-                verbose = self.verbose
+                verbose = self.verbose,
+                **self.dataset_args
             )
             
             
@@ -537,15 +544,16 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
                 num_workers=self.dataloader_args['num_workers'],
                 predict_mode=True,
                 pretrained_gene_indices = self.pretrained_gene_indices,
-                verbose = self.verbose
+                verbose = self.verbose,
+                **self.dataset_args
             )
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, persistent_workers=True, worker_init_fn=staggered_worker_init, **self.dataloader_args)
+        return DataLoader(self.train_dataset, persistent_workers=True, **self.dataloader_args)
 
     def val_dataloader(self):
         loader_args = copy.copy(self.dataloader_args)
-        return DataLoader(self.val_dataset, persistent_workers=True, worker_init_fn=staggered_worker_init, **loader_args)
+        return DataLoader(self.val_dataset, persistent_workers=True, **loader_args)
 
     def predict_dataloader(self):
         loader_args = copy.copy(self.dataloader_args)

@@ -11,7 +11,7 @@
       "soma_experiment_uri": "../data/corpora/multimode_25Feb2025/",
       "barcodes_to_use_path": "../data/barcode_lists/multimode_25Feb2025_train_barcodes_big.pkl",
       "genes_to_use_path": "../data/gene_lists/genes_2ksamples_10cells.txt",
-      "block_size": 128000,
+      "block_size": 81920,
       "random_seed": 1,
       "dataloader_args": {
         "batch_size": 256,
@@ -22,6 +22,10 @@
         "modality": "scrnaseq_protocol",
         "study": "study_name",
         "sample": "sample_name"
+      },
+      "dataset_args": {
+        "max_queue_size": 200000,
+        "prefetch_threads_per_worker": 4
       }
     }
   },
@@ -29,11 +33,11 @@
     "model_args": {
       "latent_dim": 16,
       "ct_latent_dim": 16,
-      "n_cell_type_experts": 16,
-      "modality_encoder_hidden_dims": [256, 128],
-      "ct_encoder_hidden_dims": [128, 64],
-      "predictor_hidden_dims": [256, 128],
-      "decoder_hidden_dims": [128, 256, 512],
+      "n_cell_type_experts": 8,
+      "modality_encoder_hidden_dims": [64],
+      "ct_encoder_hidden_dims": [64],
+      "predictor_hidden_dims": [64],
+      "decoder_hidden_dims": [64],
       "residual_weight": 0.0
     },
     
@@ -48,7 +52,7 @@
         "z_discriminator": [100.0, 1.0, 1.0],
         "ct_diversity": 0.0,
         "ct_regularization": 100.0,
-        "adversarial": 0.01
+        "adversarial": 0.0
       },
 
       "desired_ct_rank": 1,
@@ -59,7 +63,7 @@
 
 
       "save_validation_embeddings": true,
-      "save_validation_umaps": true,
+      "save_validation_umaps": false,
       "downsample_umaps_to_n_cells": 75000,
       "run_validation_metrics": false,
 

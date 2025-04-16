@@ -25,7 +25,6 @@ class TileDBSomaTorchIterDataset(IterableDataset):
         feature_presence_matrix,
         block_size,
         num_workers,
-        max_queue_size=300000,  # Maximum size of the shared queue
         num_modalities=None,
         num_studies=None,
         num_samples=None,
@@ -33,7 +32,9 @@ class TileDBSomaTorchIterDataset(IterableDataset):
         verbose=False,
         predict_mode=False,
         pretrained_gene_indices=None,
-        shuffle=False
+        shuffle=False,
+        max_queue_size=200000,  # Maximum size of the shared queue
+        prefetch_threads_per_worker=4
     ):     
         self.soma_experiment_uri = soma_experiment_uri
         self.obs_df = obs_df
@@ -61,6 +62,7 @@ class TileDBSomaTorchIterDataset(IterableDataset):
 
         # Prefetching parameters
         self.max_queue_size = max_queue_size
+        self.prefetch_threads_per_worker = prefetch_threads_per_worker
         
         # These will be initialized in __iter__ to avoid pickling issues
         self.data_queue = None
@@ -137,22 +139,27 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 with self.db_lock:
                     try:
                         with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-                            with soma_experiment.axis_query("RNA", obs_query=soma.AxisQuery(coords=(tuple(soma_joinid_block),))) as query:
-                                adata = query.to_anndata(X_name='row_raw', column_names={"obs":["soma_joinid"], "var":[]})
-                                adata.obs_names = adata.obs["soma_joinid"].astype(str)
+                            # with soma_experiment.axis_query("RNA", obs_query=soma.AxisQuery(coords=(tuple(soma_joinid_block),))) as query:
+                            #     adata = query.to_anndata(X_name='row_raw', column_names={"obs":["soma_joinid"], "var":[]})
+                            #     adata.obs_names = adata.obs["soma_joinid"].astype(str)
                                 
-                                # Make soma_joinid_block a list of strings
-                                soma_joinid_block_str = [str(x) for x in soma_joinid_block]
-                                adata = adata[soma_joinid_block_str, :]
+                            #     # Make soma_joinid_block a list of strings
+                            #     soma_joinid_block_str = [str(x) for x in soma_joinid_block]
+                            #     adata = adata[soma_joinid_block_str, :]
                                 
-                                assert np.all(adata.obs["soma_joinid"] == soma_joinid_block)
+                            #     assert np.all(adata.obs["soma_joinid"] == soma_joinid_block)
                                 
-                                X_block = adata.X
+                            #     X_block = adata.X
+
+                            sorted_soma_joinids = np.sort(soma_joinid_block)
+                            X_block = soma_experiment.ms["RNA"]["X"][self.X_array_name].read((tuple(sorted_soma_joinids), None)).coos().concat().to_scipy().tocsr()[soma_joinid_block, :]
                         
                         X_block = X_block[:, self.genes_to_use]
+
                     except Exception as error:
                         print(f"Error reading X array of block {block_idx}: {error}")
                         raise ValueError()
+                    
                 db_fetch_time = time.time() - db_start_time
                 db_fetch_total_time += db_fetch_time
                 
@@ -232,17 +239,18 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 #       f"Cells: {len(soma_joinid_block)}, "
                 #       f"Current queue size: {self.data_queue.qsize()}")
                 
-                # # Report overall statistics periodically
-                # current_time = time.time()
-                # if current_time - last_report_time > 30:  # Report every 30 seconds
-                #     elapsed = current_time - start_time
-                #     print(f"Worker {worker_id} STATS - "
-                #           f"Processed {cells_processed} cells in {elapsed:.2f}s "
-                #           f"({cells_processed / elapsed:.2f} cells/sec). "
-                #           f"DB time: {db_fetch_total_time:.2f}s ({db_fetch_total_time/elapsed*100:.1f}%), "
-                #           f"Processing time: {processing_total_time:.2f}s ({processing_total_time/elapsed*100:.1f}%), "
-                #           f"Queue time: {queue_total_time:.2f}s ({queue_total_time/elapsed*100:.1f}%)")
-                #     last_report_time = current_time
+                # Report overall statistics periodically
+                current_time = time.time()
+                if current_time - last_report_time > 120:  # Report every 120 seconds
+                    elapsed = current_time - start_time
+                    print(f"Worker {worker_id} STATS - "
+                          f"Processed {cells_processed} cells in {elapsed:.2f}s "
+                          f"({cells_processed / elapsed:.2f} cells/sec). "
+                          f"DB time: {db_fetch_total_time:.2f}s ({db_fetch_total_time/elapsed*100:.1f}%), "
+                          f"Processing time: {processing_total_time:.2f}s ({processing_total_time/elapsed*100:.1f}%), "
+                          f"Queue time: {queue_total_time:.2f}s ({queue_total_time/elapsed*100:.1f}%)"
+                          f"Queue size: {self.data_queue.qsize()}")
+                    last_report_time = current_time
             
         finally:
             with self.worker_lock:
@@ -267,7 +275,7 @@ class TileDBSomaTorchIterDataset(IterableDataset):
         
         if torch.utils.data.get_worker_info():
             worker_info = torch.utils.data.get_worker_info()
-            self.worker_id = worker_info.id
+            self.worker_id = worker_info.id 
             
             # Calculate block range for this worker
             self.start_block, self.end_block = self._calc_start_end(self.worker_id)
@@ -276,21 +284,39 @@ class TileDBSomaTorchIterDataset(IterableDataset):
             self.start_block = 0
             self.end_block = self.num_blocks
         
-        # Start prefetch thread
-        thread = threading.Thread(
-            target=self._prefetch_worker,
-            args=(self.worker_id, self.start_block, self.end_block),
-            daemon=True
-        )
-        thread.start()
-        self.prefetch_threads.append(thread)
+        # Split the block range into chunks for multiple prefetch threads
+        if self.prefetch_threads_per_worker > 1:
+            blocks_per_thread = math.ceil((self.end_block - self.start_block) / self.prefetch_threads_per_worker)
+            
+            # Start multiple prefetch threads
+            for i in range(self.prefetch_threads_per_worker):
+                thread_start = self.start_block + i * blocks_per_thread
+                thread_end = min(thread_start + blocks_per_thread, self.end_block)
+                
+                # Only start the thread if there are blocks to process
+                if thread_start < thread_end:
+                    thread = threading.Thread(
+                        target=self._prefetch_worker,
+                        args=(f"{self.worker_id}.{i}", thread_start, thread_end),
+                        daemon=True
+                    )
+                    thread.start()
+                    self.prefetch_threads.append(thread)
+        else:
+            # Start a single prefetch thread (original behavior)
+            thread = threading.Thread(
+                target=self._prefetch_worker,
+                args=(self.worker_id, self.start_block, self.end_block),
+                daemon=True
+            )
+            thread.start()
+            self.prefetch_threads.append(thread)
         
         if self.verbose:
             print(f"Worker {self.worker_id} - start block: {self.start_block}, end block: {self.end_block}, block_size: {self.block_size}")
 
         if self.shuffle:
             self.obs_df = self.obs_df.sample(frac=1).reset_index(drop=True)
-        
         
         return self
     
@@ -310,7 +336,7 @@ class TileDBSomaTorchIterDataset(IterableDataset):
         # if queue size is less than 5% of max size, log
         # and been 15 seconds since last log
         if self.data_queue.qsize() < self.max_queue_size * 0.05 and time.time() - self.last_log_time > 15:
-            print(f"Worker {self.worker_id} - Queue size: {self.data_queue.qsize()}, max size: {self.max_queue_size}")
+            print(f" * * * Worker {self.worker_id} - Queue size: {self.data_queue.qsize()}, max size: {self.max_queue_size}")
             self.last_log_time = time.time()
         
         
