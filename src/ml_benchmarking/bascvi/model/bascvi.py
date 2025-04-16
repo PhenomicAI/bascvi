@@ -183,7 +183,7 @@ class BAScVI(nn.Module):
             dictionary of parameters for latent variational distribution
         """
         
-        qz_m, qz_v, z, x_pred = self.z_encoder(x, batch_emb)
+        qz_m, qz_log_var, z, x_pred = self.z_encoder(x, batch_emb)
 
         x_preds = []
         if hasattr(self, 'x_predictors') and self.x_predictors is not None:
@@ -191,11 +191,11 @@ class BAScVI(nn.Module):
                 x_preds.append(x_predictor(x_pred))
 
         if self.use_library:
-            ql_m, ql_v, library_encoded = self.l_encoder(x, batch_emb)
-            outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, ql_m=ql_m, ql_v=ql_v, library=library_encoded, x_preds=x_preds)
+            ql_m, ql_log_var, library_encoded = self.l_encoder(x, batch_emb)
+            outputs = dict(z=z, qz_m=qz_m, qz_log_var=qz_log_var, ql_m=ql_m, ql_log_var=ql_log_var, library=library_encoded, x_preds=x_preds)
             
         else:
-            outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, x_preds=x_preds)
+            outputs = dict(z=z, qz_m=qz_m, qz_log_var=qz_log_var, x_preds=x_preds)
 
         return outputs
 
@@ -249,9 +249,14 @@ class BAScVI(nn.Module):
         x_ = x
 
         if self.log_variational:
-            x_ = torch.log(1 + x)
+            x_ = torch.log1p(x)
         elif self.normalize_total:
-            x_ = torch.log(1 + self.scaling_factor * x / (x.sum(dim=1, keepdim=True) + 1e-6))
+            x_sum = x.sum(dim=1, keepdim=True)
+            x_norm = x / (x_sum + 1e-6)
+            x_ = torch.log1p(self.scaling_factor * x_norm)
+
+        # clamp x_
+        x_ = torch.clamp(x_, min=0.0, max=10.0)
 
         if self.macrogene_matrix is not None:
             assert self.normalize_total == False & self.log_variational, "Cannot use macrogene matrix without log_variational set to true and normalize_total set to False"
@@ -326,15 +331,17 @@ class BAScVI(nn.Module):
         if optimizer_idx == 0:
         
             qz_m = inference_outputs["qz_m"]
-            qz_v = inference_outputs["qz_v"]
+            qz_log_var = inference_outputs["qz_log_var"]
             px_rate = generative_outputs["px_rate"]
             px_r = generative_outputs["px_r"]
             px_dropout = generative_outputs["px_dropout"]
             
             mean = torch.zeros_like(qz_m)
-            scale = torch.ones_like(qz_v)
+            scale = torch.ones_like(qz_log_var)
+
+            std = torch.exp(0.5 * qz_log_var).clamp(min=1e-4)
             
-            kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v + 1e-6)), Normal(mean, scale)).sum(dim=1)
+            kl_divergence_z = kl(Normal(qz_m, std), Normal(mean, scale)).sum(dim=1)
 
             reconst_loss = self.get_reconstruction_loss(x, px_rate, px_r, px_dropout, feature_presence_mask)
             weighted_kl_local = kl_divergence_z
@@ -344,11 +351,11 @@ class BAScVI(nn.Module):
             if self.use_library:
         
                 ql_m = inference_outputs["ql_m"]
-                ql_v = inference_outputs["ql_v"]
+                ql_log_var = inference_outputs["ql_log_var"]
             
                 kl_divergence_l = kl(
-                    Normal(ql_m, torch.sqrt(ql_v + 1e-6)),
-                    Normal(local_l_mean, torch.sqrt(local_l_var + 1e-6)),
+                    Normal(ql_m, torch.exp(0.5 * ql_log_var)),
+                    Normal(local_l_mean, torch.exp(0.5 * local_l_var)),
                 ).sum(dim=1)
 
                 weighted_kl_local = kl_divergence_z + kl_divergence_l

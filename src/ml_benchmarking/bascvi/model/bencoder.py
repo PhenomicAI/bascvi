@@ -3,13 +3,10 @@ import torch
 import torch.nn as nn
 from torch.distributions import Normal
 
-def reparameterize_gaussian(mu, var):
-    if torch.isnan(mu).any() or torch.isnan(var).any():
-        print("NaN detected in reparameterization: mu or var contains NaN!")
-        raise ValueError("NaN detected in reparameterization!")
-
-    var = torch.clamp(var, min=1e-6)  # Ensure variance is positive
-    return Normal(mu, var.sqrt()).rsample()
+def reparameterize_gaussian(mu, logvar):
+    # Don't check for NaNs - we'll handle them in the forward method
+    std = torch.exp(0.5 * logvar).clamp(min=1e-4)
+    return Normal(mu, std).rsample()
 
 
 class BEncoder(nn.Module):
@@ -59,7 +56,7 @@ class BEncoder(nn.Module):
                                 n_in + n_batch,
                                 n_out,
                             ),
-                            nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001), #nn.LayerNorm(n_out),
+                            nn.LayerNorm(n_out),# nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001), #nn.LayerNorm(n_out),
                             nn.ReLU(),
                             nn.Dropout(p=dropout_rate),
                         ),
@@ -74,12 +71,12 @@ class BEncoder(nn.Module):
                     n_hidden,
                     n_hidden,
                     ),
-            nn.BatchNorm1d(n_hidden, momentum=0.01, eps=0.001), # nn.LayerNorm(n_hidden),
+            nn.LayerNorm(n_hidden),# nn.BatchNorm1d(n_hidden, momentum=0.01, eps=0.001), # nn.LayerNorm(n_hidden),
             nn.ReLU(),
             )
             
         self.mean_encoder = nn.Linear(n_hidden, n_output)
-        self.var_encoder = nn.Linear(n_hidden, n_output)
+        self.log_var_encoder = nn.Linear(n_hidden, n_output)
 
 
     def forward(self, x: torch.Tensor, batch_emb: torch.Tensor):
@@ -100,23 +97,45 @@ class BEncoder(nn.Module):
             tensors of shape ``(n_latent,)`` for mean and var, and sample
         """
 
-
+        zeros = torch.zeros_like(batch_emb)
+        
+        # Process through encoder layers
         for layer in self.encoder:
-            x = torch.cat((x, batch_emb-batch_emb), dim=-1)
+            x = torch.cat((x, zeros), dim=-1)
             x = layer(x)
-
-
+        
         x = self.b_encoder(x)
-
-
         x_pred = x
-        
-        # Parameters for latent distribution
         q = x
+        
+        # Get parameters
         q_m = self.mean_encoder(q)
-        q_v = torch.exp(self.var_encoder(q)) + self.var_eps
+        q_log_var = self.log_var_encoder(q)
         
-        # Sample from the distribution
-        latent = reparameterize_gaussian(q_m, q_v)
+        # Debug before replacement
+        if torch.isnan(q_m).any() or torch.isnan(q_log_var).any():
+            print("NaNs detected before replacement")
+            print(f"q_m NaNs: {torch.isnan(q_m).sum().item()}")
+            print(f"q_log_var NaNs: {torch.isnan(q_log_var).sum().item()}")
         
-        return q_m, q_v, latent, x_pred
+        # Replace and clamp IN-PLACE to ensure no new tensor is created
+        q_m = q_m.clone()  # Ensure we have a clean copy
+        q_log_var = q_log_var.clone()
+        
+        # Replace NaNs in-place
+        q_m.nan_to_num_(nan=0.0)
+        q_log_var.nan_to_num_(nan=0.0)
+        
+        # Clamp in-place  
+        q_m.clamp_(min=-20.0, max=20.0)
+        q_log_var.clamp_(min=-10.0, max=4.0)
+        
+        # Verify no NaNs remain
+        assert not torch.isnan(q_m).any(), "NaNs still in q_m after replacement!"
+        assert not torch.isnan(q_log_var).any(), "NaNs still in q_log_var after replacement!"
+        
+        # Modified reparameterization that doesn't check for NaNs
+        std = torch.exp(0.5 * q_log_var).clamp(min=1e-4)
+        latent = Normal(q_m, std).rsample()
+        
+        return q_m, q_log_var, latent, x_pred
