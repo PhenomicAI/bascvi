@@ -333,9 +333,9 @@ class TileDBSomaTorchIterDataset(IterableDataset):
         
         get_time = time.time() - start_time
         
-        # if queue size is less than 5% of max size, log
+        # if queue size is less than 0.5% of max size, log
         # and been 15 seconds since last log
-        if self.data_queue.qsize() < self.max_queue_size * 0.05 and time.time() - self.last_log_time > 15:
+        if self.data_queue.qsize() < self.max_queue_size * 0.005 and time.time() - self.last_log_time > 15:
             print(f" * * * Worker {self.worker_id} - Queue size: {self.data_queue.qsize()}, max size: {self.max_queue_size}")
             self.last_log_time = time.time()
         
