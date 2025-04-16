@@ -233,24 +233,24 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                     #     print(f"Worker {worker_id} - Queue anomaly: Size before put: {queue_size_before}, after: {queue_size_after}")
                     
                 
-                # block_total_time = time.time() - block_start_time
-                # print(f"Worker {worker_id} - Block {block_idx} completed: "
-                #       f"DB fetch: {db_fetch_time:.2f}s, Total: {block_total_time:.2f}s, "
-                #       f"Cells: {len(soma_joinid_block)}, "
-                #       f"Current queue size: {self.data_queue.qsize()}")
+                block_total_time = time.time() - block_start_time
+                print(f"Worker {worker_id} - Block {block_idx} completed: "
+                      f"DB fetch: {db_fetch_time:.2f}s, Total: {block_total_time:.2f}s, "
+                      f"Cells: {len(soma_joinid_block)}, Cells/sec: {len(soma_joinid_block)/block_total_time:.2f}, "
+                      f"Current queue size: {self.data_queue.qsize()}")
                 
-                # Report overall statistics periodically
-                current_time = time.time()
-                if current_time - last_report_time > 120:  # Report every 120 seconds
-                    elapsed = current_time - start_time
-                    print(f"Worker {worker_id} STATS - "
-                          f"Processed {cells_processed} cells in {elapsed:.2f}s "
-                          f"({cells_processed / elapsed:.2f} cells/sec). "
-                          f"DB time: {db_fetch_total_time:.2f}s ({db_fetch_total_time/elapsed*100:.1f}%), "
-                          f"Processing time: {processing_total_time:.2f}s ({processing_total_time/elapsed*100:.1f}%), "
-                          f"Queue time: {queue_total_time:.2f}s ({queue_total_time/elapsed*100:.1f}%)"
-                          f"Queue size: {self.data_queue.qsize()}")
-                    last_report_time = current_time
+                # # Report overall statistics periodically
+                # current_time = time.time()
+                # if current_time - last_report_time > 120:  # Report every 120 seconds
+                #     elapsed = current_time - start_time
+                #     print(f"Worker {worker_id} STATS - "
+                #           f"Processed {cells_processed} cells in {elapsed:.2f}s "
+                #           f"({cells_processed / elapsed:.2f} cells/sec). "
+                #           f"DB time: {db_fetch_total_time:.2f}s ({db_fetch_total_time/elapsed*100:.1f}%), "
+                #           f"Processing time: {processing_total_time:.2f}s ({processing_total_time/elapsed*100:.1f}%), "
+                #           f"Queue time: {queue_total_time:.2f}s ({queue_total_time/elapsed*100:.1f}%)"
+                #           f"Queue size: {self.data_queue.qsize()}")
+                #     last_report_time = current_time
             
         finally:
             with self.worker_lock:
