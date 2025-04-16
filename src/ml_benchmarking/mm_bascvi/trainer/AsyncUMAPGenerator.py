@@ -1,14 +1,18 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor
+import os
+import wandb
+
+from ml_benchmarking.bascvi.utils.utils import umap_calc_and_plot
 
 class AsyncUMAPGenerator:
-    def __init__(self, max_workers=2):
+    def __init__(self, max_workers=1):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.pending_tasks = {}
         self.lock = threading.Lock()
         
     def submit_umap_task(self, key_prefix, embeddings_df, emb_columns, save_dir, obs_df, obs_columns, 
-                          epoch=None, step=None, max_cells=200000, opacity=0.3, **kwargs):
+                          epoch=None, step=None, max_cells=100000, opacity=0.3, **kwargs):
         """Submit a UMAP generation task asynchronously"""
         with self.lock:
             # Create a unique task key that includes the epoch
@@ -26,7 +30,7 @@ class AsyncUMAPGenerator:
             self.pending_tasks[task_key] = future
         
     def _generate_and_log_umap(self, key_prefix, embeddings_df, emb_columns, save_dir, obs_df, obs_columns, 
-                               epoch, step, max_cells=200000, opacity=0.3, **kwargs):
+                               epoch, step, max_cells=100000, opacity=0.3, **kwargs):
         """Generate UMAP in background thread and log directly to wandb"""
         try:
             os.makedirs(save_dir, exist_ok=True)
