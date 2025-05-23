@@ -25,7 +25,7 @@ class TileDBSomaTorchIterDataset(IterableDataset):
         feature_presence_matrix,
         block_size,
         num_workers,
-        max_queue_size=300000,  # Maximum size of the shared queue
+        max_queue_size=2560,  # Maximum size of the shared queue
         num_modalities=None,
         num_studies=None,
         num_samples=None,

@@ -19,12 +19,14 @@ class AnnDataDataModule(pl.LightningDataModule):
         dataloader_args: Dict = {},
         pretrained_batch_size: int = None,
         pretrained_gene_list: List[str] = None,
+        batch_keys = {"modality": "modality", "study": "study", "sample": "sample"}
     ):
         super().__init__()
         self.data_root_dir = data_root_dir
         self.dataloader_args = dataloader_args
         self.pretrained_batch_size = pretrained_batch_size
         self.pretrained_gene_list = pretrained_gene_list
+        self.batch_keys = batch_keys
 
         # ensure genes are lower case
         self.pretrained_gene_list = [gene.lower() for gene in self.pretrained_gene_list]
@@ -66,12 +68,68 @@ class AnnDataDataModule(pl.LightningDataModule):
         if len(self.file_paths) < self.dataloader_args['num_workers']:
             self.dataloader_args['num_workers'] = len(self.file_paths)
 
+        # Create batch mappings
+        self.batch_mappings = {}
+        self.batch_sizes = {}
+        
+        # Load each file to get batch information
+        for fp in self.file_paths:
+            adata = scanpy.read(fp)
+            
+            # Ensure all batch columns exist
+            for key in self.batch_keys.values():
+                if key not in adata.obs.columns:
+                    raise ValueError(f"Column {key} not found in {fp}")
+            
+            # Create mappings for each batch level
+            for level, col in self.batch_keys.items():
+                if level not in self.batch_mappings:
+                    self.batch_mappings[level] = {}
+                
+                # Add new categories to mapping
+                for cat in adata.obs[col].unique():
+                    if cat not in self.batch_mappings[level]:
+                        self.batch_mappings[level][cat] = len(self.batch_mappings[level])
+        
+        # Set batch sizes
+        for level in self.batch_keys.keys():
+            self.batch_sizes[level] = len(self.batch_mappings[level])
+            print(f"Number of {level}s: {self.batch_sizes[level]}")
 
         if stage == "fit":
-            raise NotImplementedError("Stage = Fit not implemented for AnnDataDataModule")
+            print("Stage = Fitting")
+            
+            # Use 20% of files for validation
+            self.val_files = max(len(self.file_paths) // 5, 1)
+            self.train_files = len(self.file_paths) - self.val_files
+            
+            print('# Files: ', len(self.file_paths), ' # for Training: ', self.train_files)
+            
+            self.train_dataset = AnnDataDataset(
+                file_paths=self.file_paths[:self.train_files],
+                reference_gene_list=self.pretrained_gene_list,
+                adata_len_dict=self.adata_len_dict,
+                num_batches=self.pretrained_batch_size,
+                num_workers=self.dataloader_args['num_workers'],
+                predict_mode=False,
+                batch_mappings=self.batch_mappings,
+                batch_sizes=self.batch_sizes,
+                batch_keys=self.batch_keys
+            )
+            
+            self.val_dataset = AnnDataDataset(
+                file_paths=self.file_paths[self.train_files:],
+                reference_gene_list=self.pretrained_gene_list,
+                adata_len_dict=self.adata_len_dict,
+                num_batches=self.pretrained_batch_size,
+                num_workers=self.dataloader_args['num_workers'],
+                predict_mode=False,
+                batch_mappings=self.batch_mappings,
+                batch_sizes=self.batch_sizes,
+                batch_keys=self.batch_keys
+            )
             
         elif stage == "predict":
-            
             print("Stage = Predicting on AnnDatas")
             print("# of files: ", len(self.file_paths))
             print("Pretrained batch size: ", self.pretrained_batch_size)
@@ -83,14 +141,17 @@ class AnnDataDataModule(pl.LightningDataModule):
                 num_batches=self.pretrained_batch_size,
                 num_workers=self.dataloader_args['num_workers'],
                 predict_mode=True,
+                batch_mappings=self.batch_mappings,
+                batch_sizes=self.batch_sizes,
+                batch_keys=self.batch_keys
             )
-            
 
     def train_dataloader(self):
-        raise NotImplementedError("Training not implemented for AnnDataDataModule")
+        return DataLoader(self.train_dataset, persistent_workers=True, **self.dataloader_args)
 
     def val_dataloader(self):
-        raise NotImplementedError("Training not implemented for AnnDataDataModule")
+        loader_args = copy.copy(self.dataloader_args)
+        return DataLoader(self.val_dataset, persistent_workers=True, **loader_args)
 
     def predict_dataloader(self):
         loader_args = copy.copy(self.dataloader_args)

@@ -270,7 +270,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.num_studies = int(self.obs_df["study_idx"].max() + 1)
             self.num_samples = int(self.obs_df["sample_idx"].max() + 1)
 
-            self.feature_presence_matrix = soma_experiment.ms["RNA"]["feature_presence_matrix"].read().coos(shape=(self.obs_df.sample_idx.nunique(), soma_experiment.ms["RNA"].var.count)).concat().to_scipy().toarray()
+            self.feature_presence_matrix = soma_experiment.ms["RNA"]["feature_presence_matrix"].read().coos().concat().to_scipy().toarray()
 
         # QUESTION: should we use all batches or only those in the training sample?
         # BATCH
