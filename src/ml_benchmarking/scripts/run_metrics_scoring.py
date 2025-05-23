@@ -42,6 +42,22 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
 
     
 
+    # TODO: remove; load obs
+    load_dotenv("/home/ubuntu/.aws.env")
+
+    ACCESS_KEY = os.getenv("ACCESS_KEY")
+    SECRET_KEY = os.getenv("SECRET_KEY")
+    SOMA_CORPUS_URI = "s3://pai-scrnaseq/sctx_gui/corpora/multispecies_04Jan2025_v2"
+
+    soma_experiment = soma.Experiment.open(SOMA_CORPUS_URI, context=soma.SOMATileDBContext(tiledb_ctx=tiledb.Ctx({
+            "vfs.s3.aws_access_key_id": ACCESS_KEY,
+            "vfs.s3.aws_secret_access_key": SECRET_KEY,
+            "vfs.s3.region": "us-east-2"
+        })))
+
+    obs_df = soma_experiment.obs.read(column_names=["barcode", "species", "standard_true_celltype", "study_name"]).concat().to_pandas()
+
+
     run_names = []
     pred_paths = []
 
@@ -80,13 +96,16 @@ def run_metrics_on_folder(root_dir: str, cell_type_col: str = "standard_true_cel
         else:
             emb_df = pd.read_csv(emb_path)
 
+        # merge with obs_df
+        emb_df = emb_df.merge(obs_df, on="barcode", how="left")
+
         # make metrics folder
         metrics_dir = os.path.join(root_dir, run_names[i], "metrics")
         os.makedirs(metrics_dir, exist_ok=True)
 
         # # set neurons
-        # neuron_list = ['Glutamatergic_neuron','Chandelier_and_Lamp5', 'Interneuron']
-        # emb_df[cell_type_col] = emb_df[cell_type_col].apply(lambda x: "Neuron" if x in neuron_list else x)
+        neuron_list = ['Glutamatergic_neuron','Chandelier_and_Lamp5', 'Interneuron']
+        emb_df[cell_type_col] = emb_df[cell_type_col].apply(lambda x: "Neuron" if x in neuron_list else x)
 
         if restrict_species:
             save_name = "metrics_by_batch_restrict_species.tsv"

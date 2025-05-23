@@ -10,7 +10,7 @@ from ml_benchmarking.bascvi.model.bdecoder import BDecoder
 from ml_benchmarking.bascvi.model.bencoder import BEncoder
 from ml_benchmarking.bascvi.model.encoder import Encoder
 from ml_benchmarking.bascvi.model.distributions import ZeroInflatedNegativeBinomial
-
+from ml_benchmarking.bascvi.model.mgdecoder import MacroGeneDecoder
 import numpy as np
 
 
@@ -58,6 +58,7 @@ class BAScVI(nn.Module):
         macrogene_matrix = None,
         macrogene_hidden_dim = None,
         freeze_macrogene_matrix = True,
+        macrogene_benchmark_model = False,
         predict_only = False
 
     ):
@@ -82,6 +83,8 @@ class BAScVI(nn.Module):
         self.px_r = torch.nn.Parameter(torch.randn(n_input))
 
         self.macrogene_hidden_dim = macrogene_hidden_dim
+
+        self.macrogene_benchmark_model = macrogene_benchmark_model
 
         if macrogene_matrix is not None:
             if self.macrogene_hidden_dim is not None:
@@ -117,45 +120,52 @@ class BAScVI(nn.Module):
                 n_input_encoder = macrogene_matrix.shape[1]
     
         
-        self.z_encoder = BEncoder(
-            n_input=n_input_encoder,
-            n_batch=self.n_batch,
-            n_output=n_latent,
-            n_layers=n_layers,
-            n_hidden=n_hidden,
-            dropout_rate=dropout_rate,
-        )
+        if macrogene_benchmark_model:
+            self.decoder = MacroGeneDecoder(
+                n_input=macrogene_matrix.shape[1],
+                n_output=n_input,
+            )
 
-        if self.use_library:
-            self.l_encoder = Encoder(
+        else:
+            self.z_encoder = BEncoder(
                 n_input=n_input_encoder,
                 n_batch=self.n_batch,
-                n_output=1,
-                n_layers=1,
+                n_output=n_latent,
+                n_layers=n_layers,
                 n_hidden=n_hidden,
                 dropout_rate=dropout_rate,
             )
 
-        # decoder goes from n_latent-dimensional space to n_input-d data
-        n_input_decoder = n_latent
-        self.decoder = BDecoder(
-            n_input=n_input_decoder,
-            n_batch=self.n_batch,
-            n_output=n_input,
-            n_layers=n_layers,
-            n_hidden=n_hidden,
-        )
+            if self.use_library:
+                self.l_encoder = Encoder(
+                    n_input=n_input_encoder,
+                    n_batch=self.n_batch,
+                    n_output=1,
+                    n_layers=1,
+                    n_hidden=n_hidden,
+                    dropout_rate=dropout_rate,
+                )
+
+            # decoder goes from n_latent-dimensional space to n_input-d data
+            n_input_decoder = n_latent
+            self.decoder = BDecoder(
+                n_input=n_input_decoder,
+                n_batch=self.n_batch,
+                n_output=n_input,
+                n_layers=n_layers,
+                n_hidden=n_hidden,
+            )
         
-        # Only initialize discriminator networks if not in predict_only mode
-        if not predict_only:
-            self.z_predictors = nn.ModuleList([BPredictor(n_input=n_hidden, n_batch=n_batch, n_hidden=n_hidden) for n_batch in batch_level_sizes])
-            self.x_predictors = nn.ModuleList([BPredictor(n_input=n_hidden, n_batch=n_batch, n_hidden=n_hidden) for n_batch in batch_level_sizes])
-            self.loss_cce = torch.nn.CrossEntropyLoss()
-        else:
-            # Create empty placeholders or None for these attributes
-            self.z_predictors = None
-            self.x_predictors = None
-            self.loss_cce = None
+            # Only initialize discriminator networks if not in predict_only mode
+            if not predict_only:
+                self.z_predictors = nn.ModuleList([BPredictor(n_input=n_hidden, n_batch=n_batch, n_hidden=n_hidden) for n_batch in batch_level_sizes])
+                self.x_predictors = nn.ModuleList([BPredictor(n_input=n_hidden, n_batch=n_batch, n_hidden=n_hidden) for n_batch in batch_level_sizes])
+                self.loss_cce = torch.nn.CrossEntropyLoss()
+            else:
+                # Create empty placeholders or None for these attributes
+                self.z_predictors = None
+                self.x_predictors = None
+                self.loss_cce = None
             
         if init_weights:
             self.apply(self.init_weights)
@@ -273,39 +283,56 @@ class BAScVI(nn.Module):
             x_ = nn.functional.relu(x_)
 
 
-        inference_outputs = self.inference(x_, batch_vec)
+        if self.macrogene_benchmark_model:
+
+            px_scale, px_rate, px_dropout, px_r = self.decoder(x_)
+
+            counts_pred = ZeroInflatedNegativeBinomial(mu=px_rate, theta=px_r, zi_logits=px_dropout).sample()
+
+            inference_outputs = dict(z=x_, qz_m=None, qz_log_var=None, x_preds=None)
+            generative_outputs = dict(px_scale=px_scale, px_r=px_r, px_rate=px_rate, px_dropout=px_dropout, z_preds=None, counts_pred=counts_pred)
+
+            if compute_loss and not predict_mode:
+                loss = self.mg_benchmark_loss(x, generative_outputs, batch["feature_presence_mask"])
+                return inference_outputs, generative_outputs, loss
+            else:
+                return inference_outputs, generative_outputs
 
 
-        if encode:
-            return inference_outputs, None
-
-        z = inference_outputs["z"]
-
-        if self.use_library:
-            library = inference_outputs["library"]
-            generative_outputs = self.generative(z, batch_vec, library=library)
         else:
-            generative_outputs = self.generative(z, batch_vec)
+            inference_outputs = self.inference(x_, batch_vec)
 
 
-        if compute_loss and not predict_mode:
-            losses = self.loss(
-                x,
-                local_l_mean,
-                local_l_var,
-                inference_outputs,
-                generative_outputs,
-                batch_vecs=[modality_vec, study_vec, sample_vec],
-                feature_presence_mask=batch["feature_presence_mask"],
-                kl_warmup_weight=kl_warmup_weight,
-                disc_loss_weight=disc_loss_weight,
-                disc_warmup_weight=disc_warmup_weight,
-                kl_loss_weight=kl_loss_weight,
-                optimizer_idx=optimizer_idx
-            )
-            return inference_outputs, generative_outputs, losses
-        else:
-            return inference_outputs, generative_outputs
+            if encode:
+                return inference_outputs, None
+
+            z = inference_outputs["z"]
+
+            if self.use_library:
+                library = inference_outputs["library"]
+                generative_outputs = self.generative(z, batch_vec, library=library)
+            else:
+                generative_outputs = self.generative(z, batch_vec)
+
+
+            if compute_loss and not predict_mode:
+                losses = self.loss(
+                    x,
+                    local_l_mean,
+                    local_l_var,
+                    inference_outputs,
+                    generative_outputs,
+                    batch_vecs=[modality_vec, study_vec, sample_vec],
+                    feature_presence_mask=batch["feature_presence_mask"],
+                    kl_warmup_weight=kl_warmup_weight,
+                    disc_loss_weight=disc_loss_weight,
+                    disc_warmup_weight=disc_warmup_weight,
+                    kl_loss_weight=kl_loss_weight,
+                    optimizer_idx=optimizer_idx
+                )
+                return inference_outputs, generative_outputs, losses
+            else:
+                return inference_outputs, generative_outputs
 
     def loss(
         self,
@@ -442,6 +469,28 @@ class BAScVI(nn.Module):
         disc_loss_reduced = torch.mean(torch.stack(disc_losses))
 
         return disc_loss_reduced, disc_losses
+    
+    def mg_benchmark_loss(self, x, generative_outputs, feature_presence_mask):
+        px_scale = generative_outputs["px_scale"]
+        px_rate = generative_outputs["px_rate"]
+        px_dropout = generative_outputs["px_dropout"]
+        px_r = generative_outputs["px_r"]
+        counts_pred = generative_outputs["counts_pred"]
+
+        reconst_loss = self.get_reconstruction_loss(x, px_rate, px_r, px_dropout, feature_presence_mask)
+
+        reconst_loss = torch.mean(reconst_loss)
+
+        loss_dict = {
+            "loss": reconst_loss,
+            "rec_loss": reconst_loss.detach(),
+            "kl_loss": 0,
+            "kl_normal": 0,
+            "kl_library": 0,
+        }
+
+        return loss_dict
+
 
 
         

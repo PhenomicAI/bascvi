@@ -314,6 +314,9 @@ class BAScVITrainer(pl.LightningModule):
         g_losses = {f"val_loss/{k}": v for k, v in g_losses.items()}
         self.log_dict(g_losses, on_step=False, on_epoch=True)
 
+        if self.vae.macrogene_benchmark_model:
+            return g_losses
+
         qz_m = encoder_outputs["qz_m"]
         z = encoder_outputs["z"]
 
@@ -434,20 +437,26 @@ class BAScVITrainer(pl.LightningModule):
                 return z
 
     def configure_optimizers(self,):
-        if self.training_args.get("train_library"):
-            print("Library Training: True")
+        if self.vae.macrogene_benchmark_model:
+            print("Macrogene Benchmark Model: True")
             g_params = itertools.chain(
-                self.vae.z_encoder.parameters(),
-                self.vae.l_encoder.parameters(),
                 self.vae.decoder.parameters()
-                )
+            )
         else:
-            print("Library Training: False")
-            g_params = itertools.chain(
-                self.vae.z_encoder.parameters(),
-                self.vae.decoder.parameters()
-                )
-        
+            if self.training_args.get("train_library"):
+                print("Library Training: True")
+                g_params = itertools.chain(
+                    self.vae.z_encoder.parameters(),
+                    self.vae.l_encoder.parameters(),
+                    self.vae.decoder.parameters()
+                    )
+            else:
+                print("Library Training: False")
+                g_params = itertools.chain(
+                    self.vae.z_encoder.parameters(),
+                    self.vae.decoder.parameters()
+                    )
+            
         vae_optimizer = torch.optim.Adam(g_params, **self.training_args["vae_optimizer"])
         vae_config = {"optimizer": vae_optimizer}
 

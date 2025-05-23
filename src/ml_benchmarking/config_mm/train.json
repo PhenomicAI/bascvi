@@ -24,7 +24,7 @@
         "sample": "sample_name"
       },
       "dataset_args": {
-        "max_queue_size": 200000,
+        "max_queue_size": 300000,
         "prefetch_threads_per_worker": 4
       }
     }
@@ -33,11 +33,11 @@
     "model_args": {
       "latent_dim": 16,
       "ct_latent_dim": 16,
-      "n_cell_type_experts": 8,
-      "modality_encoder_hidden_dims": [64],
-      "ct_encoder_hidden_dims": [64],
-      "predictor_hidden_dims": [64],
-      "decoder_hidden_dims": [64],
+      "n_cell_type_experts": 16,
+      "modality_encoder_hidden_dims": [512, 256],
+      "ct_encoder_hidden_dims": [512, 256, 128],
+      "predictor_hidden_dims": [128, 64],
+      "decoder_hidden_dims": [128, 256, 512],
       "residual_weight": 0.0
     },
     
@@ -48,22 +48,22 @@
         "reconstruction": 1000.0,
         "bulk_reconstruction": 0.01,
         "kl": 0.1,
-        "ct_discriminator": [100.0, 1.0, 1.0],
-        "z_discriminator": [100.0, 1.0, 1.0],
+        "ct_discriminator": [50.0, 1.0, 1.0],
+        "z_discriminator": [50.0, 1.0, 1.0],
         "ct_diversity": 0.0,
         "ct_regularization": 100.0,
-        "adversarial": 0.0
+        "adversarial": 0.01
       },
 
-      "desired_ct_rank": 1,
+      "desired_ct_rank": 2,
 
       "n_steps_kl_ramp ": 40000,
       "n_steps_adv_ramp": 40000,
       "n_steps_adv_start": 40000,
 
 
-      "save_validation_embeddings": true,
-      "save_validation_umaps": false,
+      "save_validation_embeddings": false,
+      "save_validation_umaps": true,
       "downsample_umaps_to_n_cells": 75000,
       "run_validation_metrics": false,
 

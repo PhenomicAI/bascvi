@@ -49,16 +49,16 @@ class AsyncUMAPGenerator:
                     full_key = f"{key_prefix}/{key}" if "/" not in key else key
                     wandb_images[full_key] = wandb.Image(fig_path)
                 
-                # Log with step if provided
+                # Log with epoch but WITHOUT step to avoid the "step in the past" error
                 if wandb.run is not None:
                     log_dict = {
                         **wandb_images,
                         "epoch": epoch if epoch is not None else 0
                     }
-                    if step is not None:
-                        wandb.log(log_dict, step=step)
-                    else:
-                        wandb.log(log_dict)
+                    
+                    # Don't pass step parameter - let wandb use its internal counter
+                    # This avoids "step in the past" errors when async tasks complete
+                    wandb.log(log_dict)
                     
                     print(f"Logged {len(wandb_images)} UMAP images to wandb for {key_prefix} (epoch {epoch})")
                 
