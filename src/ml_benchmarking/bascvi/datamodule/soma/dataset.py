@@ -8,7 +8,6 @@ from torch.utils.data import IterableDataset
 
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 
-
 class TileDBSomaTorchIterDataset(IterableDataset):
     """Custom torch dataset to get data from tiledbsoma in tensor form for pytorch modules."""
        
@@ -155,22 +154,35 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                     with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
                         # OLD WAY
                         sorted_soma_joinids = sorted(self.soma_joinid_block)
-                        self.X_block = soma_experiment.ms["RNA"]["X"][self.X_array_name].read((tuple(sorted_soma_joinids), None)).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.soma_joinid_block, :]
-                        # with soma_experiment.axis_query("RNA", obs_query=soma.AxisQuery(coords=(tuple(self.soma_joinid_block),))) as query:
-                        #     adata = query.to_anndata(X_name='row_raw', column_names={"obs":["soma_joinid"], "var":[]})
-                        #     adata.obs_names = adata.obs["soma_joinid"].astype(str)
 
-                    # # make soma_joinid_block a list of strings
-                    # soma_joinid_block_str = [str(x) for x in self.soma_joinid_block]
-                    # adata = adata[soma_joinid_block_str, :]
+                        # Access the RNA measurement matrix
+                        rna_X = soma_experiment.ms["RNA"]["X"][self.X_array_name]
 
-                    # assert np.all(adata.obs["soma_joinid"] == self.soma_joinid_block)
+                        # Define the full shape of the matrix
+                        full_shape = (
+                            soma_experiment.obs.count,
+                            soma_experiment.ms["RNA"].var.count
+                        )
 
-                    # self.X_block = adata.X
+                        # Read and construct sparse matrix
+                        sparse_matrix = (
+                            rna_X
+                            .read((tuple(sorted_soma_joinids), None))
+                            .coos(shape=full_shape)
+                            .concat()
+                            .to_scipy()
+                            .tocsr()
+                        )
+
+                        # Subset to the desired block
+                        self.X_block = sparse_matrix[self.soma_joinid_block, :]
+
+                        # Replace NaNs with zero (in-place modification of sparse data)
+                        nan_mask = np.isnan(self.X_block.data)
+                        self.X_block.data[nan_mask] = 0
                     
                     self.X_block = self.X_block[:, self.genes_to_use]
                     
-
 
                 except Exception as error:
                     print("Error reading X array of block: ", self.curr_block)
@@ -194,7 +206,6 @@ class TileDBSomaTorchIterDataset(IterableDataset):
             soma_joinid = self.soma_joinid_block[self.cell_counter]
             cell_idx = self.cell_idx_block[self.cell_counter]
             feature_presence_mask = self.feature_presence_matrix[sample_idx_curr, :]
-
 
             if self.predict_mode:
                 # make return
@@ -238,7 +249,8 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                     "local_l_mean": torch.tensor(local_l_mean),
                     "local_l_var": torch.tensor(local_l_var),
                 }
-
+                
+                    
             # increment counters
             if (self.cell_counter + 1) == self.obs_df_block.shape[0]:
                 self.block_counter += 1

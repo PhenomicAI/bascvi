@@ -457,8 +457,7 @@ class BAScVITrainer(pl.LightningModule):
                 mode='min',           
                 factor=0.5,           # halve the learning rate
                 patience=4,           # wait 4 epochs for improvement
-                min_lr=1e-6,
-                verbose=True
+                min_lr=1e-6
             )
             vae_config["lr_scheduler"] = {
                 "scheduler": vae_scheduler,
@@ -486,7 +485,6 @@ class BAScVITrainer(pl.LightningModule):
                     factor=0.5,
                     patience=4,
                     min_lr=1e-6,
-                    verbose=True
                 )
                 discriminator_config["lr_scheduler"] = {
                     "scheduler": disc_scheduler,

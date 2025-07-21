@@ -49,6 +49,7 @@ class BEncoder(nn.Module):
         self.var_eps = var_eps
         self.n_batch = n_batch
         layers_dim = [n_input] + (n_layers) * [n_hidden]
+        
         self.encoder = nn.Sequential(
             collections.OrderedDict(
                 [
@@ -59,7 +60,7 @@ class BEncoder(nn.Module):
                                 n_in + n_batch,
                                 n_out,
                             ),
-                            nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001), #nn.LayerNorm(n_out),
+                            nn.LayerNorm(n_out, eps=1e-5), #nn.LayerNorm(n_out),
                             nn.ReLU(),
                             nn.Dropout(p=dropout_rate),
                         ),
@@ -74,7 +75,7 @@ class BEncoder(nn.Module):
                     n_hidden,
                     n_hidden,
                     ),
-            nn.BatchNorm1d(n_hidden, momentum=0.01, eps=0.001), # nn.LayerNorm(n_hidden),
+            nn.LayerNorm(n_hidden, eps=1e-5), # nn.LayerNorm(n_hidden),
             nn.ReLU(),
             )
             
@@ -100,14 +101,15 @@ class BEncoder(nn.Module):
             tensors of shape ``(n_latent,)`` for mean and var, and sample
         """
 
-
-        for layer in self.encoder:
-            x = torch.cat((x, batch_emb-batch_emb), dim=-1)
+        for i, layer in enumerate(self.encoder):
+            # Concatenate padding
+            x = torch.cat((x, torch.zeros(x.shape[0], self.n_batch, device=x.device, dtype=x.dtype)), dim=-1)
+            
+            # Forward through layer
             x = layer(x)
 
-
+        # Final block encoder
         x = self.b_encoder(x)
-
 
         x_pred = x
         

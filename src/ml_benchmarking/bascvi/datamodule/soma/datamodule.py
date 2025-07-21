@@ -66,14 +66,17 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
     def filter_and_generate_library_calcs(self, iterative = True):
 
-        if os.path.isdir(os.path.join(self.root_dir, "cached_calcs_and_filter")):
+        filter_pass_soma_ids_path = os.path.join(self.root_dir, "cached_calcs_and_filter", 'filter_pass_soma_ids.pkl')
+        l_means_vars_path = os.path.join(self.root_dir, "cached_calcs_and_filter", 'l_means_vars.csv')
+
+        if os.path.exists(filter_pass_soma_ids_path) and os.path.exists(l_means_vars_path):
             print("Loading cached metadata...")
 
-            with open(os.path.join(self.root_dir, "cached_calcs_and_filter", 'filter_pass_soma_ids.pkl'), 'rb') as f:
+            with open(filter_pass_soma_ids_path, 'rb') as f:
                 self.filter_pass_soma_ids = pickle.load(f)
             print(" - loaded cached filter pass")
 
-            self.library_calcs = pd.read_csv(os.path.join(self.root_dir, "cached_calcs_and_filter", 'l_means_vars.csv'))
+            self.library_calcs = pd.read_csv(l_means_vars_path)
             print(" - loaded cached library calcs")
 
             # check if metadata calcs are done
@@ -103,19 +106,13 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             sample_idx = self.samples_list[len(samples_run)]
             print("starting with ", sample_idx)
 
-
-            # convert genes to use to bool
-            genes_to_use_bool = np.zeros(self.feature_presence_matrix.shape[1], dtype=bool)
-            genes_to_use_bool[self.genes_to_use] = True
-
-
             for sample_idx_i in tqdm(range(len(samples_run), len(self.samples_list))):
                 sample_idx = self.samples_list[sample_idx_i]
 
                 feature_presence_matrix = self.feature_presence_matrix[sample_idx, :].astype(bool)
 
                 # these are the genes that are present in this sample and in the genes_to_use list
-                sample_gene_ids = np.where(feature_presence_matrix & genes_to_use_bool)[0]
+                sample_gene_ids = np.asarray(list(set(np.where(feature_presence_matrix)[0]).intersection(set(self.genes_to_use))))
                 
                 # read soma_ids for this sample
                 soma_ids_in_sample = self.obs_df[self.obs_df["sample_idx"] == sample_idx]["soma_joinid"].values.tolist()
@@ -159,10 +156,10 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
                     continue
 
                 # get nnz and filter
-                gene_counts = X_curr.getnnz(axis=1)
+                gene_counts = (X_curr != 0).sum(axis=1).flatten()
                 cell_mask = gene_counts > 300 
                 X_curr = X_curr[cell_mask, :]
-                    
+                
                 print("sample ", sample_idx, ", X shape: ", X_curr.shape)
 
                 # calc l_mean, l_var

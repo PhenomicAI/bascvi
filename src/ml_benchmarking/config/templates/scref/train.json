@@ -7,15 +7,15 @@
     "datamodule": {
         "class_name": "TileDBSomaIterDataModule",
         "options": {
-            "soma_experiment_uri": "../data/corpora/scref_ml/",
+            "soma_experiment_uri": "/home/ubuntu/scREF_test/data/scREF_2025/",
             "train_column": "included_scref_train",
-            "genes_to_use_path": "../data/gene_lists/genes_2ksamples_10cells.txt",
-            "block_size": 100000,
+            "genes_to_use_path": "/home/ubuntu/scREF_test/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",
+            "block_size": 1000,
             "calc_library": false,
             "random_seed": 42,
             "dataloader_args": {
                 "batch_size": 64,
-                "num_workers": 4,
+                "num_workers": 1,
                 "pin_memory": true
             },
             "batch_keys": {
@@ -40,16 +40,14 @@
 
         "training_args": {
             "kl_loss_weight": 1.0,
-            "disc_loss_weight": 5.0,
+            "disc_loss_weight": 1000.0,
 
-            "n_steps_kl_warmup": 50000,
-
-            "n_steps_discriminator_warmup": 500000,
+            "n_steps_kl_warmup": 10,
+            "n_steps_discriminator_warmup": 10,
             "sigmoidal_disc_warmup": true, 
 
             "save_validation_umaps": true,
             "run_validation_metrics": false,
-
 
             "vae_optimizer": {
                 "lr": 1e-4,
@@ -62,9 +60,7 @@
         
             "train_adversarial": true,
             "train_library": true,
-
             "reduce_lr_on_plateau": true
-            
         },
 
         "callbacks_args": {

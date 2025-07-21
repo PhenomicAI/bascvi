@@ -1,5 +1,3 @@
-import imp
-
 from .encoder import Encoder
 from .decoder import Decoder
 from .bencoder import BEncoder

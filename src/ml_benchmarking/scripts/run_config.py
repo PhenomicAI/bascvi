@@ -3,8 +3,12 @@ import os
 import torch
 from argparse import ArgumentParser
 
+import sys
+sys.path.append('/home/ubuntu/scREF_test/bascvi/src/')
+
 from ml_benchmarking.scripts.train import train
 from ml_benchmarking.scripts.predict import predict
+
 # from ml_benchmarking.scripts.run_metrics_scoring import run_metrics_on_folder
 
 def run_config(config: dict):
