@@ -13,7 +13,7 @@ from tqdm import tqdm
 import tiledbsoma as soma
 from pyarrow.lib import ArrowInvalid
 import pytorch_lightning as pl
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, get_worker_info
 
 from ml_benchmarking.bascvi.datamodule.soma.dataset import TileDBSomaTorchIterDataset
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
@@ -495,12 +495,10 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         """Return DataLoader for training dataset."""
         return DataLoader(self.train_dataset, persistent_workers=True, worker_init_fn=staggered_worker_init, **self.dataloader_args)
 
-
     def val_dataloader(self):
         """Return DataLoader for validation dataset."""
         loader_args = copy.copy(self.dataloader_args)
         return DataLoader(self.val_dataset, persistent_workers=True, worker_init_fn=staggered_worker_init, **loader_args)
-
 
     def predict_dataloader(self):
         """Return DataLoader for prediction dataset."""
