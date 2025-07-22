@@ -54,6 +54,8 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 soma_experiment.obs.count,
                 soma_experiment.ms["RNA"].var.count
             )
+        print("FULL SHAPE: ", self.full_shape
+        )
         assert self.obs_df.soma_joinid.nunique() == self.obs_df.shape[0], "soma_joinid must be unique per row."
         assert self.obs_df.cell_idx.nunique() == self.obs_df.shape[0], "cell_idx must be unique per row."
         
