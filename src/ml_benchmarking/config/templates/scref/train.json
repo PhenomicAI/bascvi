@@ -10,7 +10,7 @@
             "soma_experiment_uri": "/home/ubuntu/scREF_test/data/scREF_2025/",
             "train_column": "included_scref_train",
             "genes_to_use_path": "/home/ubuntu/scREF_test/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",
-            "block_size": 1000,
+            "block_size": 10000,
             "calc_library": false,
             "random_seed": 42,
             "dataloader_args": {
