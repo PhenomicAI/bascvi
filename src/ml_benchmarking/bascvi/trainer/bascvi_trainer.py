@@ -17,13 +17,12 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 from ml_benchmarking.bascvi.utils.utils import umap_calc_and_save_html, calc_kni_score, calc_rbni_score
 
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-                
 
 # https://www.microsoft.com/en-us/research/blog/less-pain-more-gain-a-simple-method-for-vae-training-with-less-of-that-kl-vanishing-agony/
+
 def get_kld_cycle(epoch, period=20):
     '''
     0-10: 0 to 1

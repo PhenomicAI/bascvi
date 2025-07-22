@@ -458,7 +458,6 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
      
         self.num_cells = self.obs_df.shape[0]
-
         self.num_batches = self.num_modalities + self.num_studies + self.num_samples
         
         print('# Blocks: ', self.num_total_blocks)
