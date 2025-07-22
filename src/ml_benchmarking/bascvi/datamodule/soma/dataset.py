@@ -190,11 +190,13 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 print("subsetting, converting, and transposing x...")
             # Prepare input features for current cell
             X_curr = np.squeeze(np.transpose(self.X_block[self.cell_counter, :].toarray()))
+            
             if self.pretrained_gene_indices is not None:
                 # Expand X_curr to full size of pretrained model
                 X_curr_full = np.zeros(self.num_input,  dtype=np.int32)
                 X_curr_full[self.pretrained_gene_indices] = X_curr
                 X_curr = np.squeeze(np.transpose(X_curr_full))
+
             sample_idx_curr = self.sample_idx_block[self.cell_counter]
             soma_joinid = self.soma_joinid_block[self.cell_counter]
             cell_idx = self.cell_idx_block[self.cell_counter]

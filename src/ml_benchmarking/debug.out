@@ -1,0 +1,35 @@
+switching torch multiprocessing start method from "fork" to "spawn"
+Traceback (most recent call last):
+  File "/home/ubuntu/scREF_test/bascvi/src/ml_benchmarking/scripts/run_config.py", line 60, in <module>
+    run_config(config)
+    ~~~~~~~~~~^^^^^^^^
+  File "/home/ubuntu/scREF_test/bascvi/src/ml_benchmarking/scripts/run_config.py", line 37, in run_config
+    train(config)
+    ~~~~~^^^^^^^^
+  File "/home/ubuntu/scREF_test/bascvi/src/ml_benchmarking/scripts/train.py", line 26, in train
+    wandb.init(project=config["wandb_project_name"], dir=config["run_save_dir"], config=config)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/miniconda3/lib/python3.13/site-packages/wandb/sdk/wandb_init.py", line 1620, in init
+    wandb._sentry.reraise(e)
+    ~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/home/ubuntu/miniconda3/lib/python3.13/site-packages/wandb/analytics/sentry.py", line 157, in reraise
+    raise exc.with_traceback(sys.exc_info()[2])
+  File "/home/ubuntu/miniconda3/lib/python3.13/site-packages/wandb/sdk/wandb_init.py", line 1548, in init
+    wi.maybe_login(init_settings)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/home/ubuntu/miniconda3/lib/python3.13/site-packages/wandb/sdk/wandb_init.py", line 191, in maybe_login
+    wandb_login._login(
+    ~~~~~~~~~~~~~~~~~~^
+        anonymous=run_settings.anonymous,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        _silent=run_settings.quiet or run_settings.silent,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/ubuntu/miniconda3/lib/python3.13/site-packages/wandb/sdk/wandb_login.py", line 315, in _login
+    key, key_status = wlogin.prompt_api_key(referrer=referrer)
+                      ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/miniconda3/lib/python3.13/site-packages/wandb/sdk/wandb_login.py", line 243, in prompt_api_key
+    raise UsageError("api_key not configured (no-tty). call " + directive)
+wandb.errors.errors.UsageError: api_key not configured (no-tty). call wandb.login(key=[your_api_key])
