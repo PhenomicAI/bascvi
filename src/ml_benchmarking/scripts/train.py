@@ -88,19 +88,25 @@ def save_embeddings_and_metrics(trainer, datamodule, config, predictions):
     wandb.finish()
 
 def train(config: Dict):
+
     config.setdefault("wandb_project_name", "bascvi")
     wandb_logger = WandbLogger(project=config["wandb_project_name"], save_dir=config["run_save_dir"])
     wandb.init(project=config["wandb_project_name"], dir=config["run_save_dir"], config=config)
     datamodule = get_datamodule(config)
     datamodule.setup()
+
     trainer, model = get_trainer_and_model(config, datamodule, wandb_logger)
+    
     logger.info("-----------------------Starting training-----------------------")
     trainer.fit(model, datamodule=datamodule)
     logger.info(f"Best model path: {trainer.checkpoint_callback.best_model_path}")
     logger.info(f"Best model score: {trainer.checkpoint_callback.best_model_score}")
+   
     trainer.save_checkpoint(os.path.join(os.path.dirname(trainer.checkpoint_callback.best_model_path), "latest.ckpt"))
     logger.info("--------------Embedding prediction on full dataset-------------")
+    
     datamodule.pretrained_batch_size = datamodule.num_batches
     datamodule.setup(stage="predict")
     predictions = trainer.predict(model, datamodule=datamodule)
+    
     save_embeddings_and_metrics(trainer, datamodule, config, predictions)

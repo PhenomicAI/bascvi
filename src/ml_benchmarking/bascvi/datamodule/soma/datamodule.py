@@ -18,13 +18,11 @@ from torch.utils.data import DataLoader, get_worker_info
 from ml_benchmarking.bascvi.datamodule.soma.dataset import TileDBSomaTorchIterDataset
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 
-
 def log_mean(X):
     """Compute the mean of the log total counts per cell."""
     log_counts = np.log(X.sum(axis=1))
     local_mean = np.mean(log_counts).astype(np.float32)
     return local_mean
-
 
 def log_var(X):
     """Compute the variance of the log total counts per cell."""
@@ -325,6 +323,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
 
         # Handle pretrained gene list if provided
         if self.pretrained_gene_list:
+            
             self.pretrained_gene_list = [g.lower() for g in self.pretrained_gene_list]
             self.pretrained_gene_ids = self.var_df[self.var_df["gene"].str.lower().isin(self.pretrained_gene_list)].soma_joinid.values.tolist()
             self.genes_to_use = list(set(self.pretrained_gene_ids).intersection(set(self.genes_to_use)))
@@ -337,6 +336,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             print("pretrained gene indices: ", len(self.pretrained_gene_indices))
             print("pretrained gene list: ", len(self.pretrained_gene_list))
             print("max gene index: ", max(self.pretrained_gene_indices))
+
         else:
             self.var_df_sub = self.var_df[self.var_df["soma_joinid"].isin(self.genes_to_use)].sort_values("gene")
             self.soma_gene_name_list = self.var_df_sub["gene"].values.tolist()

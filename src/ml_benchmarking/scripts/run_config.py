@@ -16,6 +16,7 @@ def run_config(config: dict):
     # for tiledb
     torch.multiprocessing.set_start_method("fork", force=True)
     orig_start_method = torch.multiprocessing.get_start_method()
+    
     if orig_start_method != "spawn":
         if orig_start_method:
             print(

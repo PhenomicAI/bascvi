@@ -11,7 +11,6 @@ from torch.utils.data import DataLoader
 
 from ml_benchmarking.bascvi.datamodule.anndata.dataset import AnnDataDataset
 
-
 class AnnDataDataModule(pl.LightningDataModule):
     def __init__(
         self,

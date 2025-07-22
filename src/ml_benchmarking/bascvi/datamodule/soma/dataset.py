@@ -102,8 +102,10 @@ class TileDBSomaTorchIterDataset(IterableDataset):
         return self
 
     def _get_block(self, curr_block):
+
         start_idx = curr_block * self.block_size
         end_idx = min(start_idx + self.block_size, self.obs_df.shape[0])
+
         if self.verbose:
             print("reading new block of size ", end_idx - start_idx)
         obs_df_block = self.obs_df.iloc[start_idx:end_idx, : ]
@@ -117,10 +119,13 @@ class TileDBSomaTorchIterDataset(IterableDataset):
         assert obs_df_block.shape[0] == (end_idx - start_idx)
         assert len(np.unique(soma_joinid_block)) == (end_idx - start_idx)
         assert len(np.unique(cell_idx_block)) == (end_idx - start_idx)
+
         try:
             with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
+
                 sorted_soma_joinids = sorted(soma_joinid_block)
                 rna_X = soma_experiment.ms["RNA"]["X"][self.X_array_name]
+
                 sparse_matrix = (
                     rna_X
                     .read((tuple(sorted_soma_joinids), None))
@@ -129,14 +134,19 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                     .to_scipy()
                     .tocsr()
                 )
+
                 X_block = sparse_matrix[soma_joinid_block, :]
                 nan_mask = np.isnan(X_block.data)
                 X_block.data[nan_mask] = 0
+
             X_block = X_block[:, self.genes_to_use]
+
         except Exception as error:
+
             print("Error reading X array of block: ", curr_block)
             print(error)
             raise ValueError()
+
         return (obs_df_block, cell_idx_block, soma_joinid_block, modality_idx_block, study_idx_block, sample_idx_block, X_block)
 
     def _make_datum(self, X_curr, soma_joinid, cell_idx, feature_presence_mask, sample_idx_curr, modality_idx_curr=None, study_idx_curr=None):
@@ -186,13 +196,17 @@ class TileDBSomaTorchIterDataset(IterableDataset):
                 sample_idx_block,
                 X_block
             ) = self._block_data
+
             if self.verbose:    
                 print("subsetting, converting, and transposing x...")
+
             X_curr = np.squeeze(np.transpose(X_block[self.cell_counter, :].toarray()))
             if self.pretrained_gene_indices is not None:
+
                 X_curr_full = np.zeros(self.num_input,  dtype=np.int32)
                 X_curr_full[self.pretrained_gene_indices] = X_curr
                 X_curr = np.squeeze(np.transpose(X_curr_full))
+                
             sample_idx_curr = sample_idx_block[self.cell_counter]
             soma_joinid = soma_joinid_block[self.cell_counter]
             cell_idx = cell_idx_block[self.cell_counter]
