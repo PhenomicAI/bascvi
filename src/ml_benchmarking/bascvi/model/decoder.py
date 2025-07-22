@@ -93,7 +93,7 @@ class Decoder(nn.Module):
         px_dropout = self.px_dropout_decoder(px)
         
         # Clamp to high value: exp(12) ~ 160000 to avoid nans (computational stability)
-        clamp_max = torch.exp(torch.tensor([12.0])).item()
+        clamp_max = torch.exp(torch.tensor([10.0])).item()
         
         if library is None:
             px_rate = px_scale.clamp(max=clamp_max)  # torch.clamp( , max=12)

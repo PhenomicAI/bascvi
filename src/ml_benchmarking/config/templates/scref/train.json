@@ -15,7 +15,7 @@
             "random_seed": 42,
             "dataloader_args": {
                 "batch_size": 64,
-                "num_workers": 1,
+                "num_workers": 6,
                 "pin_memory": true
             },
             "batch_keys": {
@@ -54,7 +54,7 @@
                 "weight_decay": 1e-5
             },
             "discriminator_optimizer": {
-                "lr": 1e-4,
+                "lr": 1e-2,
                 "weight_decay": 1e-5
             },
         

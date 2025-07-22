@@ -185,8 +185,10 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
             self.l_means = []
             self.l_vars = []
             with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
+
                 X = soma_experiment.ms["RNA"]["X"]["row_raw"].read(coords=(self.obs_df.soma_joinid.values.tolist(), )).coos(shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.obs_df.soma_joinid.values.tolist(), :]
                 X = X[:, self.genes_to_use]
+                
                 gene_counts = X.getnnz(axis=1)
                 cell_mask = gene_counts > 300
                 X = X[cell_mask, :]
@@ -215,6 +217,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         self.library_calcs.set_index("sample_idx")
 
     def setup(self, stage: Optional[str] = None):
+        
         # read metadata
         column_names = ["soma_joinid", "barcode", self.batch_keys["study"], self.batch_keys["sample"], self.batch_keys["modality"]]
 

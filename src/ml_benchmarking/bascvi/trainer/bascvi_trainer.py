@@ -16,7 +16,6 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 from ml_benchmarking.bascvi.utils.utils import umap_calc_and_save_html, calc_kni_score, calc_rbni_score
-from ml_benchmarking.bascvi.utils.protein_embeddings import get_stacked_protein_embeddings_matrix, get_centroid_distance_matrix
 
 
 logger = logging.getLogger(__name__)
@@ -57,14 +56,9 @@ class BAScVITrainer(pl.LightningModule):
         class_name: str = "BAScVI",
         gene_list: list = None,
         n_input: int = None,
-        use_macrogenes: bool = False,
-        macrogene_method: str = "concat",
-        macrogene_embedding_model: str = "ESM2",
-        macrogene_species_list: list = ['human', 'mouse'],
-        macrogene_matrix_path: str = None,
-        freeze_macrogene_matrix: bool = True,
         batch_level_sizes: list = None,
         predict_only: bool = False,
+        max_epochs: int = 100,
     ):
         super().__init__()
         # save hyperparameters in hparams.yaml file
@@ -101,13 +95,6 @@ class BAScVITrainer(pl.LightningModule):
 
         self.gene_list = gene_list
 
-        self.use_macrogenes = use_macrogenes
-        self.macrogene_method = macrogene_method
-        self.macrogene_embedding_model = macrogene_embedding_model
-        self.macrogene_matrix_path = macrogene_matrix_path
-        self.freeze_macrogene_matrix = freeze_macrogene_matrix
-        self.macrogene_species_list = macrogene_species_list
-
         self.predict_only = predict_only
 
         # Add predict_only to model_args
@@ -120,33 +107,6 @@ class BAScVITrainer(pl.LightningModule):
         module = __import__("ml_benchmarking.bascvi.model", globals(), locals(), [module_name], 0)
         # getting attribute by getattr() method
         Vae = getattr(module, class_name)
-
-        if self.use_macrogenes:
-            if self.macrogene_method == "concat_norm":
-                macrogene_matrix = get_stacked_protein_embeddings_matrix(f"/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=self.macrogene_species_list)
-                # scale macrogene matrix
-                # scaler = StandardScaler()
-                # macrogene_matrix = scaler.fit_transform(macrogene_matrix)
-                # normalize macrogene matrix dividing by sum of each row
-                macrogene_matrix = macrogene_matrix / macrogene_matrix.sum(axis=1, keepdims=True)
-            
-            elif self.macrogene_method == "concat":
-                macrogene_matrix = get_stacked_protein_embeddings_matrix(f"/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=self.macrogene_species_list)
-            
-            elif self.macrogene_method == "saturn":
-                if os.path.isfile(self.macrogene_matrix_path):
-                    macrogene_matrix = np.load(self.macrogene_matrix_path)
-                else:
-                    macrogene_matrix = get_centroid_distance_matrix(f"/home/ubuntu/paper_repo/bascvi/data/gene_embeddings/{self.macrogene_embedding_model}", gene_list=self.gene_list, species_list=self.macrogene_species_list, num_clusters=10000)
-            
-            elif self.macrogene_method == "ortholog":
-                macrogene_matrix = np.load("/home/ubuntu/paper_repo/bascvi/data/ortho_gene_matrix.npy")
-
-
-
-            model_args["macrogene_matrix"] = torch.from_numpy(macrogene_matrix).float()
-            model_args["freeze_macrogene_matrix"] = self.freeze_macrogene_matrix
-
         self.vae = Vae(**model_args)
 
         logger.info(f"{module_name} model args:\n {model_args}")
@@ -343,9 +303,7 @@ class BAScVITrainer(pl.LightningModule):
             os.makedirs(save_dir, exist_ok=True)
 
             obs_columns = ["standard_true_celltype", "study_name", "sample_name", "scrnaseq_protocol"]
-            if self.use_macrogenes:
-                obs_columns.append("species") 
-                pass
+            
 
             if self.obs_df is None:
                 with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
