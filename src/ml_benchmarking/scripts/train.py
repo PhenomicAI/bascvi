@@ -8,7 +8,7 @@ import wandb
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer
 
-from ml_benchmarking.bascvi.datamodule import TileDBSomaIterDataModule, AnnDataDataModule, EmbDatamodule
+from ml_benchmarking.bascvi.datamodule import TileDBSomaIterDataModule, AnnDataDataModule, EmbDatamodule, ZarrDataModule
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 from ml_benchmarking.bascvi.utils.utils import calc_kni_score, calc_rbni_score
 
@@ -19,7 +19,16 @@ def get_datamodule(config):
     options = config["datamodule"]["options"]
     options["root_dir"] = config["run_save_dir"]
     class_name = config["datamodule"]["class_name"]
-    if class_name == "TileDBSomaIterDataModule":
+    
+    # Handle ZarrDataModule specially - it needs pretrained_gene_list loaded from file
+    if class_name == "ZarrDataModule":
+        if "pretrained_gene_list_path" in options:
+            with open(options["pretrained_gene_list_path"], 'r') as f:
+                pretrained_gene_list = [line.strip() for line in f.readlines()]
+            options["pretrained_gene_list"] = pretrained_gene_list
+            del options["pretrained_gene_list_path"]
+        return ZarrDataModule(**options)
+    elif class_name == "TileDBSomaIterDataModule":
         return TileDBSomaIterDataModule(**options)
     elif class_name == "EmbDatamodule":
         return EmbDatamodule(**options)
@@ -61,30 +70,45 @@ def get_trainer_and_model(config, datamodule, wandb_logger):
 def save_embeddings_and_metrics(trainer, datamodule, config, predictions):
     embeddings = torch.cat(predictions, dim=0).detach().cpu().numpy()
     emb_columns = [f"embedding_{i}" for i in range(embeddings.shape[1] - 1)]
-    embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["soma_joinid"])
-    logger.info("--------------------------Run UMAP----------------------------")
-    with open_soma_experiment(datamodule.soma_experiment_uri) as soma_experiment:
-        obs_df = soma_experiment.obs.read(
-            column_names=("soma_joinid", "standard_true_celltype", "sample_name", "study_name", "barcode"),
-        ).concat().to_pandas()
-    embeddings_df = embeddings_df.set_index("soma_joinid").join(obs_df.set_index("soma_joinid"))
-    obs_df = obs_df.set_index("soma_joinid").loc[embeddings_df.index]
-    save_path = os.path.join(
-        config["run_save_dir"],
-        "pred_embeddings_" + os.path.splitext(os.path.basename(trainer.checkpoint_callback.best_model_path))[0] + ".tsv"
-    )
-    embeddings_df.to_csv(save_path, sep="\t")
-    logger.info(f"Saved predicted embeddings to: {save_path}")
-    logger.info("--------------------------Run Metrics----------------------------")
-    kni_score = calc_kni_score(embeddings_df[emb_columns], obs_df)
-    rbni_score = calc_rbni_score(embeddings_df[emb_columns], obs_df)
-    logger.info(f"KNI Score: {kni_score}")
-    logger.info(f"RBNI Score: {rbni_score}")
-    for k in ["confusion_matrix", "kni_confusion_matrix", "results_by_batch"]:
-        kni_score.pop(k, None)
-    rbni_score.pop("results_by_batch", None)
-    wandb.run.summary.update(kni_score)
-    wandb.run.summary.update(rbni_score)
+    
+    # Handle different datamodule types
+    if hasattr(datamodule, 'soma_experiment_uri') and datamodule.soma_experiment_uri:
+        # SOMA-based datamodule
+        embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["soma_joinid"])
+        logger.info("--------------------------Run UMAP----------------------------")
+        with open_soma_experiment(datamodule.soma_experiment_uri) as soma_experiment:
+            obs_df = soma_experiment.obs.read(
+                column_names=("soma_joinid", "standard_true_celltype", "sample_name", "study_name", "barcode"),
+            ).concat().to_pandas()
+        embeddings_df = embeddings_df.set_index("soma_joinid").join(obs_df.set_index("soma_joinid"))
+        obs_df = obs_df.set_index("soma_joinid").loc[embeddings_df.index]
+        save_path = os.path.join(
+            config["run_save_dir"],
+            "pred_embeddings_" + os.path.splitext(os.path.basename(trainer.checkpoint_callback.best_model_path))[0] + ".tsv"
+        )
+        embeddings_df.to_csv(save_path, sep="\t")
+        logger.info(f"Saved predicted embeddings to: {save_path}")
+        logger.info("--------------------------Run Metrics----------------------------")
+        kni_score = calc_kni_score(embeddings_df[emb_columns], obs_df)
+        rbni_score = calc_rbni_score(embeddings_df[emb_columns], obs_df)
+        logger.info(f"KNI Score: {kni_score}")
+        logger.info(f"RBNI Score: {rbni_score}")
+        for k in ["confusion_matrix", "kni_confusion_matrix", "results_by_batch"]:
+            kni_score.pop(k, None)
+        rbni_score.pop("results_by_batch", None)
+        wandb.run.summary.update(kni_score)
+        wandb.run.summary.update(rbni_score)
+    else:
+        # Zarr-based datamodule - simplified saving
+        embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["cell_idx"])
+        save_path = os.path.join(
+            config["run_save_dir"],
+            "pred_embeddings_" + os.path.splitext(os.path.basename(trainer.checkpoint_callback.best_model_path))[0] + ".tsv"
+        )
+        embeddings_df.to_csv(save_path, sep="\t")
+        logger.info(f"Saved predicted embeddings to: {save_path}")
+        logger.info("Note: Metrics calculation not implemented for zarr data")
+    
     wandb.finish()
 
 def train(config: Dict):

@@ -3,3 +3,4 @@
 from .anndata.datamodule import AnnDataDataModule
 from .soma.datamodule import TileDBSomaIterDataModule
 from .embeddings.datamodule import EmbDatamodule
+from .zarr.datamodule import ZarrDataModule

@@ -120,22 +120,32 @@ class ZarrDataset(IterableDataset):
 
                 # training mode      
                 if not self.predict_mode:
-
-                    raise("Training mode for adata not implemented yet")
-                
-                    # filter cells with very few gene reads
-                    gene_counts = self.adata.X.getnnz(axis=1)
-                    mask = gene_counts > 300
+                    # filter cells with very few gene reads (but be more lenient for small datasets)
+                    gene_counts = np.sum(self.adata.X > 0, axis=1)
+                    min_genes = min(300, self.adata.shape[0] // 2)  # Be more lenient for small datasets
+                    mask = gene_counts > min_genes
                     self.adata = self.adata[mask, :]
+                    
+                    # Check if we still have cells after filtering
+                    if self.adata.shape[0] == 0:
+                        # If no cells pass filter, use all cells
+                        self.adata = anndata.read_zarr(curr_adata_path)
+                        self.adata.var['gene'] = self.adata.var['gene'].str.lower()
+                        self.adata.var = self.adata.var.set_index(self.adata.var['gene'])
+                        self.adata = anndata.concat([self.ref_adata.copy(), self.adata], join='outer')
+                        self.adata = self.adata[1:, self.reference_gene_list]
 
-                    # make batch vector
-                    # TODO: make this work for training
-                    one_hot_batch = ...
+                    # make batch vector - using file index as batch
+                    one_hot_batch = np.zeros(3)  # [modality, study, sample]
+                    one_hot_batch[2] = self.file_counter  # sample index
 
                     # get library calcs
                     self.adata.obs['int_index'] = list(range(self.adata.shape[0]))
-                    self.l_mean_all = self.adata.obs.groupby("sample_name")["int_index"].transform(log_mean, self.adata.X)
-                    self.l_var_all = self.adata.obs.groupby("sample_name")["int_index"].transform(log_var, self.adata.X)
+                    # For zarr files, we'll use simple library calculations
+                    total_counts = np.sum(self.adata.X, axis=1)
+                    log_counts = np.log(total_counts + 1)
+                    self.l_mean_all = np.mean(log_counts)
+                    self.l_var_all = np.var(log_counts)
 
             # check if adata.X is a sparse matrix
             if isinstance(self.adata.X, np.ndarray): # Changed from csr_matrix to np.ndarray for zarr
@@ -153,10 +163,9 @@ class ZarrDataset(IterableDataset):
                 }
 
             else:
-                raise("Training mode for adata not implemented yet")
-
-                local_l_mean = self.l_mean_all[self.cell_counter]
-                local_l_var = self.l_var_all[self.cell_counter]
+                
+                local_l_mean = self.l_mean_all
+                local_l_var = self.l_var_all
 
                 # make return
                 datum = {
@@ -164,7 +173,7 @@ class ZarrDataset(IterableDataset):
                     "batch_emb": torch.from_numpy(one_hot_batch),
                     "local_l_mean": torch.tensor(local_l_mean),
                     "local_l_var": torch.tensor(local_l_var),
-                    "feature_presence_mask": torch.tensor(self.feature_presence_mask),
+                    "feature_presence_mask": torch.from_numpy(self.feature_presence_mask),
                     "locate": torch.tensor([self.file_counter, self.adata.obs['int_index'].values.tolist()[self.cell_counter]])
                     }
 

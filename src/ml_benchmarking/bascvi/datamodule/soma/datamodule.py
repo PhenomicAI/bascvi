@@ -17,23 +17,7 @@ from torch.utils.data import DataLoader, get_worker_info
 
 from ml_benchmarking.bascvi.datamodule.soma.dataset import TileDBSomaTorchIterDataset
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
-
-def log_mean(X):
-    """Compute the mean of the log total counts per cell."""
-    log_counts = np.log(X.sum(axis=1))
-    local_mean = np.mean(log_counts).astype(np.float32)
-    return local_mean
-
-def log_var(X):
-    """Compute the variance of the log total counts per cell."""
-    log_counts = np.log(X.sum(axis=1))
-    local_var = np.var(log_counts).astype(np.float32)
-    return local_var
-
-
-def staggered_worker_init(worker_id):
-    """Custom worker init function to stagger the initialization of DataLoader workers."""
-    time.sleep(worker_id * 0)  # Currently no delay, but can be adjusted if needed
+from ml_benchmarking.bascvi.datamodule.library_calculations import LibraryCalculator, log_mean, log_var, staggered_worker_init
 
 
 class TileDBSomaIterDataModule(pl.LightningDataModule):
@@ -87,144 +71,30 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
     def filter_and_generate_library_calcs(self, iterative=True):
         """
         Filter cells and compute per-sample library statistics (mean/var of log counts).
-        Caches results to disk for efficiency.
+        Uses the cross-compatible LibraryCalculator.
         """
-        filter_pass_soma_ids_path = os.path.join(self.root_dir, "cached_calcs_and_filter", 'filter_pass_soma_ids.pkl')
-        l_means_vars_path = os.path.join(self.root_dir, "cached_calcs_and_filter", 'l_means_vars.csv')
-
-        # Try to load cached results if available
-        if os.path.exists(filter_pass_soma_ids_path) and os.path.exists(l_means_vars_path):
-            print("Loading cached metadata...")
-
-            with open(filter_pass_soma_ids_path, 'rb') as f:
-                self.filter_pass_soma_ids = pickle.load(f)
-            print(" - loaded cached filter pass")
-
-            self.library_calcs = pd.read_csv(l_means_vars_path)
-            print(" - loaded cached library calcs")
-
-            # Check if all samples are processed
-            if max(self.library_calcs["sample_idx"].to_list()) == max(self.samples_list):
-                print("   - library calcs completed!")
-                self.library_calcs.set_index("sample_idx")
-                print(len(self.cells_to_use), " cells passed final filter.")
-                return
-            else:
-                print("   - resuming library calcs...")
-                self.l_means = self.library_calcs["library_log_means"].to_list()
-                self.l_vars = self.library_calcs["library_log_vars"].to_list()
-                samples_run = self.library_calcs["sample_idx"].to_list()
-        else:
-            os.makedirs(os.path.join(self.root_dir, "cached_calcs_and_filter"), exist_ok=True)
-            filter_pass_soma_ids = []
-            self.l_means = []
-            self.l_vars = []
-            samples_run = []
-
-        print("Generating sample metadata...")
-
-        # Iterative mode: process samples one by one (useful for large datasets)
-        if iterative:
-            for sample_idx_i in tqdm(range(len(samples_run), len(self.samples_list))):
-                sample_idx = self.samples_list[sample_idx_i]
-
-                feature_presence_matrix = self.feature_presence_matrix[sample_idx, :].astype(bool)
-
-                # Genes present in both sample and genes_to_use
-                sample_gene_ids = np.asarray(list(set(np.where(feature_presence_matrix)[0]).intersection(set(self.genes_to_use))))
-
-                # Get soma_joinids for this sample
-                soma_ids_in_sample = self.obs_df[self.obs_df["sample_idx"] == sample_idx]["soma_joinid"].values.tolist()
-
-                # Skip if no cells
-                if len(soma_ids_in_sample) < 1:
-                    print(f"skipping calcs for {sample_idx}, not enough cells")
-                    self.l_means.append(0)
-                    self.l_vars.append(1)
-                    samples_run.append(sample_idx)
-                    self.library_calcs = pd.DataFrame({"sample_idx": samples_run,
-                                                       "library_log_means": self.l_means,
-                                                       "library_log_vars": self.l_vars})
-                    self.library_calcs.to_csv(l_means_vars_path)
-                    continue
-
-                # Try to read counts for this sample
-                try:
-                    with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-                        X_curr = soma_experiment.ms["RNA"]["X"]["row_raw"].read((soma_ids_in_sample, None)).coos(
-                            shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[soma_ids_in_sample, :]
-                        X_curr = X_curr[:, sample_gene_ids]
-                except ArrowInvalid:
-                    print(f"skipping calcs for {sample_idx}, not enough counts")
-                    self.l_means.append(0)
-                    self.l_vars.append(1)
-                    samples_run.append(sample_idx)
-                    self.library_calcs = pd.DataFrame({"sample_idx": samples_run,
-                                                       "library_log_means": self.l_means,
-                                                       "library_log_vars": self.l_vars})
-                    self.library_calcs.to_csv(l_means_vars_path)
-                    continue
-
-                # Filter cells with enough genes
-                gene_counts = (X_curr != 0).sum(axis=1).flatten()
-                cell_mask = gene_counts > 300
-                X_curr = X_curr[cell_mask, :]
-
-                print(f"sample {sample_idx}, X shape: {X_curr.shape}")
-
-                # Compute stats
-                self.l_means.append(log_mean(X_curr))
-                self.l_vars.append(log_var(X_curr))
-                samples_run.append(sample_idx)
-
-                # Update filter pass list
-                filter_pass_soma_ids += np.array(soma_ids_in_sample)[cell_mask].tolist()
-
-                # Save intermediate results
-                with open(filter_pass_soma_ids_path, 'wb') as f:
-                    pickle.dump(filter_pass_soma_ids, f)
-
-                self.library_calcs = pd.DataFrame({"sample_idx": samples_run,
-                                                   "library_log_means": self.l_means,
-                                                   "library_log_vars": self.l_vars})
-                self.library_calcs.to_csv(l_means_vars_path)
-        else:
-            # Non-iterative: process all at once (for smaller datasets)
-            samples_run = []
-            self.l_means = []
-            self.l_vars = []
-
-            with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
-                X = soma_experiment.ms["RNA"]["X"]["row_raw"].read(coords=(self.obs_df.soma_joinid.values.tolist(), )).coos(
-                    shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.obs_df.soma_joinid.values.tolist(), :]
-                X = X[:, self.genes_to_use]
-
-                gene_counts = X.getnnz(axis=1)
-                cell_mask = gene_counts > 300
-                X = X[cell_mask, :]
-                filtered_obs = self.obs_df.loc[cell_mask]
-                filter_pass_soma_ids = self.obs_df["soma_joinid"].to_numpy()[cell_mask].tolist()
-
-                for sample_idx in tqdm(self.samples_list):
-                    rows = (filtered_obs["sample_idx"] == sample_idx).values
-                    cols = self.feature_presence_matrix[sample_idx, :].astype(bool)
-                    sub_X = X[rows, :][:, cols]
-                    self.l_means.append(log_mean(sub_X))
-                    self.l_vars.append(log_var(sub_X))
-                    samples_run.append(sample_idx)
-
-            self.library_calcs = pd.DataFrame({"sample_idx": samples_run,
-                                               "library_log_means": self.l_means,
-                                               "library_log_vars": self.l_vars})
-
-        # Save results
-        self.filter_pass_soma_ids = set(filter_pass_soma_ids)
-        self.library_calcs.to_csv(l_means_vars_path)
-        with open(filter_pass_soma_ids_path, 'wb') as f:
-            pickle.dump(self.filter_pass_soma_ids, f)
-
-        print(len(self.filter_pass_soma_ids), " cells passed final filter.")
-        self.library_calcs.set_index("sample_idx")
+        # Initialize library calculator
+        library_calc = LibraryCalculator(
+            data_source="soma",
+            data_path=self.soma_experiment_uri,
+            root_dir=self.root_dir,
+            genes_to_use=self.genes_to_use,
+            calc_library=self.calc_library,
+            batch_keys=self.batch_keys
+        )
+        
+        # Setup and run library calculations
+        library_calc.setup()
+        
+        # Get results
+        self.library_calcs = library_calc.get_library_calcs()
+        self.filter_pass_soma_ids = library_calc.get_filter_pass_ids()
+        
+        # Update obs_df and feature_presence_matrix from library calculator
+        self.obs_df = library_calc.obs_df
+        self.var_df = library_calc.var_df
+        self.feature_presence_matrix = library_calc.feature_presence_matrix
+        self.samples_list = library_calc.samples_list
 
 
     def setup(self, stage: Optional[str] = None):
