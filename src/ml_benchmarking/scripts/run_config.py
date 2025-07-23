@@ -10,8 +10,11 @@ from ml_benchmarking.scripts.train import train
 from ml_benchmarking.scripts.predict import predict
 
 # from ml_benchmarking.scripts.run_metrics_scoring import run_metrics_on_folder
+import os
+os.environ["WANDB_MODE"] = "disabled"
 
 def run_config(config: dict):
+
 
     # for tiledb
     torch.multiprocessing.set_start_method("fork", force=True)

@@ -5,7 +5,9 @@ import pickle
 import time
 from typing import Dict, Optional, List, Union
 import warnings
-
+import zarr 
+from scipy.sparse import csr_matrix
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -30,11 +32,9 @@ def log_var(X):
     local_var = np.var(log_counts).astype(np.float32)
     return local_var
 
-
 def staggered_worker_init(worker_id):
     """Custom worker init function to stagger the initialization of DataLoader workers."""
     time.sleep(worker_id * 0)  # Currently no delay, but can be adjusted if needed
-
 
 class LibraryCalculator:
     """
@@ -101,6 +101,7 @@ class LibraryCalculator:
                 warnings.warn("barcodes in obs are not unique, making them unique by prefixing with study name + '__'")
 
             # Create categorical indices for batch keys
+            
             self.obs_df["modality_idx"] = self.obs_df["modality_idx"] if self.batch_keys["modality"] == "modality_idx" else self.obs_df[self.batch_keys["modality"]].astype('category').cat.codes
             self.obs_df["study_idx"] = self.obs_df["study_idx"] if self.batch_keys["study"] == "study_idx" else self.obs_df[self.batch_keys["study"]].astype('category').cat.codes
             self.obs_df["sample_idx"] = self.obs_df["sample_idx"] if self.batch_keys["sample"] == "sample_idx" else self.obs_df[self.batch_keys["sample"]].astype('category').cat.codes
@@ -111,108 +112,168 @@ class LibraryCalculator:
         self.samples_list = sorted(self.obs_df["sample_idx"].unique().tolist())
         
     def load_zarr_data(self):
-        """Load data from zarr files, but do NOT load X into memory."""
-        from pathlib import Path
-        import zarr
-        
+        """Load data from zarr files using zarr API only (no anndata.read_zarr)."""
+
         # Find all zarr files
         zarr_dirs = [str(p) for p in Path(self.data_path).iterdir() if p.is_dir() and p.name.endswith('.zarr')]
-        
         if len(zarr_dirs) == 0:
             raise ValueError("No .zarr files found in the provided directory.")
-            
-        # Load first zarr file to get gene information
-        first_adata = anndata.read_zarr(zarr_dirs[0])
-        self.var_df = pd.DataFrame({
-            'gene': first_adata.var_names.tolist(),
-            'soma_joinid': range(len(first_adata.var_names))
-        })
-        # Only load obs for all files (not X)
+
+        # Load var from first file
+        z0 = zarr.open(zarr_dirs[0], mode='r')
+        var_group = z0["var"]
+
+        # Extract columns
+        var_dict = {}
+        for col_name in var_group.array_keys():
+            var_dict[col_name] = var_group[col_name][...]
+
+        # Construct DataFrame
+        var_df = pd.DataFrame(var_dict)
+        self.var_df = var_df.reset_index(drop=True)
+
+        # Compose obs_df for all files
         obs_dfs = []
         for i, zarr_path in enumerate(zarr_dirs):
-            adata = anndata.read_zarr(zarr_path)
+
+            study_name = zarr_path.split("/")[-1].split(".")[0]
+
+            z = zarr.open(zarr_path, mode='r')
+            obs_group = z['obs']
+
+            # Extract columns into a dictionary
+            obs_dict = {}
+            for col_name in obs_group.array_keys():
+                obs_dict[col_name] = obs_group[col_name][...]
+
+            # Construct pandas DataFrame
+            obs = pd.DataFrame(obs_dict)
+
+            n_obs = obs.shape[0]
+
+            print(study_name,obs.shape[0])
+
             file_obs = pd.DataFrame({
-                'soma_joinid': range(i * 10000, i * 10000 + adata.n_obs),
-                'barcode': [f"file_{i}_cell_{j}" for j in range(adata.n_obs)],
-                'study_name': f"study_{i}",
+                'soma_joinid': range(i * 10000, i * 10000 + n_obs),
+                'barcode': obs['barcode'],
+                'study_name': study_name,
                 'scrnaseq_protocol': 'zarr_protocol',
                 'modality_idx': 0,
-                'study_idx': 0,
-                'sample_idx': i
+                'study_idx': i,
+                'sample_idx': obs['sample_idx'],
+                'nnz': obs['nnz']
             })
+
             obs_dfs.append(file_obs)
+
         self.obs_df = pd.concat(obs_dfs, ignore_index=True)
         self.feature_presence_matrix = np.ones((len(zarr_dirs), len(self.var_df)), dtype=bool)
         self.samples_list = list(range(len(zarr_dirs)))
 
+    def extract_zarr_chunk(self, X, start, stop):
+
+        # Read CSR components
+        data = X["data"]
+        indices = X["indices"]
+        indptr = X["indptr"]
+        shape = tuple(X.attrs["shape"])  # (n_obs, n_vars)
+
+        # Row-level index pointers
+        indptr_start = indptr[start]
+        indptr_stop = indptr[stop]
+
+        # Extract the relevant data for the slice
+        data_slice = data[indptr_start:indptr_stop]
+        indices_slice = indices[indptr_start:indptr_stop]
+
+        # Adjust indptr to be relative to this slice
+        indptr_slice = indptr[start:stop + 1] - indptr_start
+
+        # Build CSR matrix for the chunk
+        X_chunk = csr_matrix((data_slice, indices_slice, indptr_slice), shape=(stop - start, shape[1]))
+
+        return X_chunk
+
+
     def filter_and_generate_library_calcs(self, iterative=True):
+
         """
         Filter cells and compute per-sample library statistics (mean/var of log counts).
         For zarr, always process one file/sample at a time and X in row chunks.
         """
+
         filter_pass_ids_path = os.path.join(self.root_dir, "cached_calcs_and_filter", 'filter_pass_ids.pkl')
         l_means_vars_path = os.path.join(self.root_dir, "cached_calcs_and_filter", 'l_means_vars.csv')
+
         if os.path.exists(filter_pass_ids_path) and os.path.exists(l_means_vars_path):
+
             print("Loading cached metadata...")
             with open(filter_pass_ids_path, 'rb') as f:
                 self.filter_pass_ids = pickle.load(f)
             print(" - loaded cached filter pass")
             self.library_calcs = pd.read_csv(l_means_vars_path)
             print(" - loaded cached library calcs")
+
             if max(self.library_calcs["sample_idx"].to_list()) == max(self.samples_list):
                 print("   - library calcs completed!")
                 self.library_calcs.set_index("sample_idx")
                 print(len(self.filter_pass_ids), " cells passed final filter.")
                 return
+
             else:
                 print("   - resuming library calcs...")
                 self.l_means = self.library_calcs["library_log_means"].to_list()
                 self.l_vars = self.library_calcs["library_log_vars"].to_list()
                 samples_run = self.library_calcs["sample_idx"].to_list()
         else:
+
             os.makedirs(os.path.join(self.root_dir, "cached_calcs_and_filter"), exist_ok=True)
             filter_pass_ids = []
             self.l_means = []
             self.l_vars = []
             samples_run = []
         print("Generating sample metadata...")
+
         if self.data_source == "zarr":
-            from pathlib import Path
-            import zarr
+
             zarr_dirs = [str(p) for p in Path(self.data_path).iterdir() if p.is_dir() and p.name.endswith('.zarr')]
+            
             for sample_idx, zarr_path in enumerate(zarr_dirs):
-                try:
-                    z = zarr.open(zarr_path, mode='r')
-                    X = z['X']
-                    n_rows = X.shape[0]
-                    chunk_size = 1000
-                    cell_mask_all = []
-                    log_means = []
-                    for start in range(0, n_rows, chunk_size):
-                        stop = min(start + chunk_size, n_rows)
-                        X_chunk = X[start:stop, :]
-                        gene_counts = np.sum(X_chunk > 0, axis=1)
-                        cell_mask = gene_counts > 300
-                        cell_mask_all.extend(cell_mask.tolist())
-                        if np.any(cell_mask):
-                            log_means.append(log_mean(X_chunk[cell_mask, :]))
-                    if log_means:
-                        mean_val = float(np.mean(log_means))
-                        var_val = float(np.var(log_means))
-                    else:
-                        mean_val = 0.0
-                        var_val = 1.0
-                    print(f"sample {sample_idx}, # passing cells: {np.sum(cell_mask_all)}")
-                    self.l_means.append(mean_val)
-                    self.l_vars.append(var_val)
-                    samples_run.append(sample_idx)
-                    cell_ids = np.where(cell_mask_all)[0] + sample_idx * 10000
-                    filter_pass_ids.extend(cell_ids.tolist())
-                except Exception as e:
-                    print(f"skipping calcs for {sample_idx}, error: {e}")
-                    self.l_means.append(0)
-                    self.l_vars.append(1)
-                    samples_run.append(sample_idx)
+
+                z = zarr.open(zarr_path, mode='r')
+                X = z['X']
+                n_rows = X.attrs["shape"][0]
+                
+                chunk_size = 1000
+                cell_mask_all = []
+                log_means = []
+                
+                for start in range(0, n_rows, chunk_size):
+
+                    stop = min(start + chunk_size, n_rows)
+
+                    X_chunk = self.extract_zarr_chunk(X, start, stop)
+
+                    gene_counts = np.array((X_chunk > 0).sum(axis=1)).ravel()
+
+                    cell_mask = gene_counts > 300
+                    cell_mask_all.extend(cell_mask.tolist())
+
+                    if np.any(cell_mask):
+                        log_means.append(log_mean(X_chunk[cell_mask, :]))
+                
+                mean_val = float(np.mean(log_means))
+                var_val = float(np.var(log_means))
+
+                print(f"sample {sample_idx}, # passing cells: {np.sum(cell_mask_all)}")
+
+                self.l_means.append(mean_val)
+                self.l_vars.append(var_val)
+
+                samples_run.append(sample_idx)
+                cell_ids = np.where(cell_mask_all)[0] + sample_idx * 10000
+                filter_pass_ids.extend(cell_ids.tolist())
+                
                 with open(filter_pass_ids_path, 'wb') as f:
                     pickle.dump(filter_pass_ids, f)
                 self.library_calcs = pd.DataFrame({"sample_idx": samples_run,
@@ -287,36 +348,40 @@ class LibraryCalculator:
         filter_pass_ids.extend(np.array(soma_ids_in_sample)[cell_mask].tolist())
         
     def _process_zarr_sample(self, sample_idx, filter_pass_ids, samples_run):
-        """Process a single zarr sample."""
-        from pathlib import Path
-        
+        """Process a single zarr sample using zarr directly (no anndata)."""
+
         zarr_dirs = [str(p) for p in Path(self.data_path).iterdir() if p.is_dir() and p.name.endswith('.zarr')]
         zarr_path = zarr_dirs[sample_idx]
-        
-        try:
-            adata = anndata.read_zarr(zarr_path)
-            
-            # Filter cells with enough genes
-            gene_counts = np.sum(adata.X > 0, axis=1)
+
+        z = zarr.open(zarr_path, mode='r')
+        X = z['X']
+        n_rows = X.shape[0]
+        chunk_size = 1000
+        cell_mask_all = []
+        log_means = []
+
+        for start in range(0, n_rows, chunk_size):
+
+            stop = min(start + chunk_size, n_rows)
+            X_chunk = X[start:stop, :]
+            gene_counts = np.sum(X_chunk > 0, axis=1)
             cell_mask = gene_counts > 300
-            X_curr = adata.X[cell_mask, :]
-            
-            print(f"sample {sample_idx}, X shape: {X_curr.shape}")
-            
-            # Compute stats
-            self.l_means.append(log_mean(X_curr))
-            self.l_vars.append(log_var(X_curr))
-            samples_run.append(sample_idx)
-            
-            # Update filter pass list (use cell indices as IDs)
-            cell_ids = np.where(cell_mask)[0] + sample_idx * 10000  # Create unique IDs
-            filter_pass_ids.extend(cell_ids.tolist())
-            
-        except Exception as e:
-            print(f"skipping calcs for {sample_idx}, error: {e}")
-            self.l_means.append(0)
-            self.l_vars.append(1)
-            samples_run.append(sample_idx)
+            cell_mask_all.extend(cell_mask.tolist())
+            if np.any(cell_mask):
+                log_means.append(log_mean(X_chunk[cell_mask, :]))
+
+        mean_val = float(np.mean(log_means)) if log_means else 0.0
+        var_val = float(np.var(log_means)) if log_means else 1.0
+        
+        print(f"sample {sample_idx}, # passing cells: {np.sum(cell_mask_all)}")
+        
+        self.l_means.append(mean_val)
+        self.l_vars.append(var_val)
+        
+        samples_run.append(sample_idx)
+        cell_ids = np.where(cell_mask_all)[0] + sample_idx * 10000
+        filter_pass_ids.extend(cell_ids.tolist())
+
             
     def _process_soma_all_samples(self, filter_pass_ids, samples_run):
         """Process all SOMA samples at once."""
