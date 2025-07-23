@@ -12,7 +12,7 @@
             "pretrained_gene_list_path": "/home/ubuntu/scREF_test/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",
             "dataloader_args": {
                 "batch_size": 64,
-                "num_workers": 1,
+                "num_workers": 7,
                 "pin_memory": true
             }
         }
