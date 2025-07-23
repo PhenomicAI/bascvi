@@ -2,17 +2,22 @@ import copy
 import os
 import math
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Union
 
 import pandas as pd
 import pytorch_lightning as pl
-import anndata
 import numpy as np
+import zarr
 
 from torch.utils.data import DataLoader 
 
 from ml_benchmarking.bascvi.datamodule.zarr.dataset import ZarrDataset
 from ml_benchmarking.bascvi.datamodule.library_calculations import LibraryCalculator
+
+def load_gene_list(gene_list_path: str) -> List[str]:
+    with open(gene_list_path, 'r') as f:
+        genes = [line.strip().lower() for line in f if line.strip()]
+    return genes
 
 class ZarrDataModule(pl.LightningDataModule):
     def __init__(
@@ -20,7 +25,7 @@ class ZarrDataModule(pl.LightningDataModule):
         data_root_dir: str = "",
         dataloader_args: Dict = {},
         pretrained_batch_size: int = None,
-        pretrained_gene_list: List[str] = None,
+        pretrained_gene_list: Union[str, List[str]] = None,
         root_dir: str = "",
         random_seed: int = 42,
     ):
@@ -31,20 +36,24 @@ class ZarrDataModule(pl.LightningDataModule):
         self.pretrained_gene_list = pretrained_gene_list
         self.root_dir = root_dir
         self.random_seed = random_seed
-
-        # ensure genes are lower case
-        if self.pretrained_gene_list:
-            self.pretrained_gene_list = [gene.lower() for gene in self.pretrained_gene_list]
-
         assert os.path.exists(data_root_dir), f"Data root directory {data_root_dir} does not exist"
 
     def setup(self, stage: Optional[str] = None):
+        # Load gene list from file if needed
+        if isinstance(self.pretrained_gene_list, str):
+            self.gene_list = load_gene_list(self.pretrained_gene_list)
+        elif self.pretrained_gene_list is not None:
+            self.gene_list = [g.lower() for g in self.pretrained_gene_list]
+        else:
+            # Use genes from the first zarr file
+            z0 = zarr.open(self.file_paths[0], mode='r')
+            self.gene_list = [str(g).lower() for g in z0['var']['gene'][...]]
         # Initialize library calculator for zarr data
         library_calc = LibraryCalculator(
             data_source="zarr",
             data_path=self.data_root_dir,
             root_dir=self.root_dir,
-            genes_to_use=None,  # Will be set based on pretrained_gene_list
+            genes_to_use=self.gene_list,
             calc_library=True,
             batch_keys={"modality": "scrnaseq_protocol", "study": "study_name", "sample": "sample_idx"}
         )
@@ -66,9 +75,9 @@ class ZarrDataModule(pl.LightningDataModule):
         # Only find .zarr directories
         zarr_dirs = [str(p) for p in Path(self.data_root_dir).iterdir() if p.is_dir() and p.name.endswith('.zarr')]
         for zarr_path in zarr_dirs:
-            ad_ = anndata.read_zarr(zarr_path)
+            z = zarr.open(zarr_path, mode='r')
             self.file_paths.append(zarr_path)
-            self.zarr_len_dict[zarr_path] = ad_.shape[0]
+            self.zarr_len_dict[zarr_path] = z['X'].attrs['shape'][0]
 
         if len(self.file_paths) == 0:
             raise ValueError("No .zarr files found in the provided directory.")
@@ -78,18 +87,9 @@ class ZarrDataModule(pl.LightningDataModule):
         if len(self.file_paths) < self.dataloader_args['num_workers']:
             self.dataloader_args['num_workers'] = len(self.file_paths)
 
-        # Set up gene information
-        if self.pretrained_gene_list:
-            self.num_genes = len(self.pretrained_gene_list)
-            self.gene_list = self.pretrained_gene_list
-        else:
-            # Use genes from the first zarr file
-            first_adata = anndata.read_zarr(self.file_paths[0])
-            self.gene_list = [gene.lower() for gene in first_adata.var_names.tolist()]
-            self.num_genes = len(self.gene_list)
+        self.num_genes = len(self.gene_list)
 
         # Set up batch information (simplified for zarr files)
-        # For zarr files, we'll use file-based batching
         self.num_modalities = 1
         self.num_studies = 1
         self.num_samples = len(self.file_paths)
@@ -112,16 +112,20 @@ class ZarrDataModule(pl.LightningDataModule):
 
         if stage == "fit":
             print("Stage = Fitting")
-            # For training, we'll use all files
             self.train_dataset = ZarrDataset(
                 file_paths=self.file_paths,
                 reference_gene_list=self.gene_list,
                 zarr_len_dict=self.zarr_len_dict,
                 num_batches=self.pretrained_batch_size or 64,
                 num_workers=self.dataloader_args['num_workers'],
+                block_size=self.block_size,
                 predict_mode=False,
+                feature_presence_matrix=self.feature_presence_matrix,
+                library_calcs=self.library_calcs,
+                num_modalities=self.num_modalities,
+                num_studies=self.num_studies,
+                num_samples=self.num_samples,
             )
-            # For validation, we'll use a subset of files
             val_files = self.file_paths[:max(1, len(self.file_paths) // 5)]
             self.val_dataset = ZarrDataset(
                 file_paths=val_files,
@@ -129,7 +133,13 @@ class ZarrDataModule(pl.LightningDataModule):
                 zarr_len_dict={k: v for k, v in self.zarr_len_dict.items() if k in val_files},
                 num_batches=self.pretrained_batch_size or 64,
                 num_workers=self.dataloader_args['num_workers'],
+                block_size=self.block_size,
                 predict_mode=False,
+                feature_presence_matrix=self.feature_presence_matrix,
+                library_calcs=self.library_calcs,
+                num_modalities=self.num_modalities,
+                num_studies=self.num_studies,
+                num_samples=self.num_samples,
             )
         elif stage == "predict":
             print("Stage = Predicting on Zarr files")
@@ -141,7 +151,13 @@ class ZarrDataModule(pl.LightningDataModule):
                 zarr_len_dict=self.zarr_len_dict,
                 num_batches=self.pretrained_batch_size,
                 num_workers=self.dataloader_args['num_workers'],
+                block_size=self.block_size,
                 predict_mode=True,
+                feature_presence_matrix=self.feature_presence_matrix,
+                library_calcs=self.library_calcs,
+                num_modalities=self.num_modalities,
+                num_studies=self.num_studies,
+                num_samples=self.num_samples,
             )
 
     def train_dataloader(self):

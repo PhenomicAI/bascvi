@@ -1,14 +1,15 @@
 import math
 from typing import Dict, List
-import anndata
 import numpy as np
 import torch
 from torch.utils.data import IterableDataset
-import gc
+import torch.nn.functional as F
+import zarr
+from ml_benchmarking.bascvi.datamodule.zarr.utils import extract_zarr_row
 
 class ZarrDataset(IterableDataset):
     """Custom torch dataset to get data from zarr in tensor form for pytorch modules."""
-       
+    
     def __init__(
         self,
         file_paths,
@@ -16,34 +17,38 @@ class ZarrDataset(IterableDataset):
         zarr_len_dict,
         num_batches,
         num_workers,
-        predict_mode=False
+        block_size=1000,
+        predict_mode=False,
+        feature_presence_matrix=None,
+        library_calcs=None,
+        num_modalities=None,
+        num_studies=None,
+        num_samples=None,
     ):
-
         self.reference_gene_list = reference_gene_list
-
-        # Create a dummy AnnData for reference gene alignment
-        self.ref_adata = anndata.AnnData(
-            X=np.zeros((1, len(self.reference_gene_list)), dtype=np.float32),
-            var={'gene': self.reference_gene_list},
-            dtype=np.float32
-        )
-        self.ref_adata.var = self.ref_adata.var.set_index(self.ref_adata.var['gene'])
-
         self.num_files = len(file_paths)
         self.file_paths = file_paths
-
         self.num_workers = num_workers
         self.num_batches = num_batches
-
+        self.block_size = block_size
         self.predict_mode = predict_mode
-
-        self._len = 0
-        for p in file_paths:
-            self._len += zarr_len_dict[p]
-
+        self.zarr_len_dict = zarr_len_dict
+        self._len = sum(zarr_len_dict[p] for p in file_paths)
         self.file_counter = 0
-        self.cell_counter = 0
-
+        self.row_counter = 0
+        self.current_file = None
+        self.current_z = None
+        self.current_var = None
+        self.current_obs = None
+        self.current_X = None
+        self.current_gene_indices = None
+        self.rows_in_file = 0
+        self.is_sparse = False
+        self.feature_presence_matrix = feature_presence_matrix
+        self.library_calcs = library_calcs
+        self.num_modalities = num_modalities
+        self.num_studies = num_studies
+        self.num_samples = num_samples
 
     def __len__(self):
         return self._len
@@ -52,146 +57,111 @@ class ZarrDataset(IterableDataset):
         if torch.utils.data.get_worker_info():
             worker_info = torch.utils.data.get_worker_info()
             self.worker_id = worker_info.id
-
             self.start_file, self.end_file = self._calc_start_end(self.worker_id)
         else:
             self.start_file = 0
             self.end_file = self.num_files
-
-        # print("start block, end block, block_size: ", self.start_block, self.end_block, self.block_size)
-
+        self.file_counter = self.start_file
+        self.row_counter = 0
+        self.current_file = None
+        self.current_z = None
+        self.current_var = None
+        self.current_obs = None
+        self.current_X = None
+        self.current_gene_indices = None
+        self.rows_in_file = 0
+        self.is_sparse = False
         return self
 
     def _calc_start_end(self, worker_id):
-
-        # we have less or equal num files to workers
         if self.num_files <= self.num_workers:
-            # assign one file per worker
-            self.num_files_per_worker = 1
-
             start_file = worker_id
             end_file = worker_id + 1
-
-        # we have more files than workers
         else:
-            # calculate number of files per worker
-            self.num_files_per_worker = math.floor(self.num_files / self.num_workers)
-            start_file = worker_id * self.num_files_per_worker
-            end_file = start_file + self.num_files_per_worker
-
+            num_files_per_worker = math.floor(self.num_files / self.num_workers)
+            start_file = worker_id * num_files_per_worker
+            end_file = start_file + num_files_per_worker
             if worker_id + 1 == self.num_workers:
                 end_file = self.num_files
-
         return (start_file, end_file)
-    
+
+    def _load_file(self, file_idx):
+        z = zarr.open(self.file_paths[file_idx], mode='r')
+        var = z['var']
+        obs = z['obs']
+        X = z['X']
+        var_genes = [str(g).lower() for g in var['gene'][...]]
+        gene_indices = [var_genes.index(g) for g in self.reference_gene_list if g in var_genes]
+        self.current_z = z
+        self.current_var = var
+        self.current_obs = obs
+        self.current_X = X
+        self.current_gene_indices = gene_indices
+        self.rows_in_file = X.shape[0] if hasattr(X, 'shape') else X.attrs['shape'][0]
+        self.row_counter = 0
+        self.is_sparse = all(k in X for k in ['data', 'indices', 'indptr'])
+
     def __next__(self):
-         
-        if self.file_counter + self.start_file < self.end_file:
-            curr_adata_path = self.file_paths[self.file_counter + self.start_file]
-
-            # if count is 0 then we need to load a new adata from disk
-            if self.cell_counter == 0: 
-                # Only support zarr
-                self.adata = anndata.read_zarr(curr_adata_path)
-
-                # ensure genes are lower case
-                self.adata.var['gene'] = self.adata.var['gene'].str.lower()
-                self.adata.var = self.adata.var.set_index(self.adata.var['gene'])
-
-                self.adata.X = self.adata.X.astype(np.int32)
-
-                # make index for locating cell in adata in case we subset
-                self.adata.obs['int_index'] = list(range(self.adata.shape[0]))
-
-
-                # should be Prod specific (prod means predicting on new data)
-                #if self.prod_mode:
-
-                self.feature_presence_mask = np.asarray([r in self.adata.var['gene'] for r in self.reference_gene_list])
-                print('# genes found in reference: ', np.sum(self.feature_presence_mask), '# genes in adata', self.adata.shape[1], '# genes in reference', len(self.reference_gene_list))
-
-                # expands the adata to include the reference genes
-                self.adata = anndata.concat([self.ref_adata.copy(), self.adata], join='outer')
-                # remove the empty top row from ref, subset genes to reference gene list
-                self.adata = self.adata[1:, self.reference_gene_list]
-
-                self.adata.obs = self.adata.obs.set_index(self.adata.obs['int_index'], drop=False)
-                self.adata.var = self.adata.var.reset_index()
-
-                # training mode      
-                if not self.predict_mode:
-                    # filter cells with very few gene reads (but be more lenient for small datasets)
-                    gene_counts = np.sum(self.adata.X > 0, axis=1)
-                    min_genes = min(300, self.adata.shape[0] // 2)  # Be more lenient for small datasets
-                    mask = gene_counts > min_genes
-                    self.adata = self.adata[mask, :]
-                    
-                    # Check if we still have cells after filtering
-                    if self.adata.shape[0] == 0:
-                        # If no cells pass filter, use all cells
-                        self.adata = anndata.read_zarr(curr_adata_path)
-                        self.adata.var['gene'] = self.adata.var['gene'].str.lower()
-                        self.adata.var = self.adata.var.set_index(self.adata.var['gene'])
-                        self.adata = anndata.concat([self.ref_adata.copy(), self.adata], join='outer')
-                        self.adata = self.adata[1:, self.reference_gene_list]
-
-                    # make batch vector - using file index as batch
-                    one_hot_batch = np.zeros(3)  # [modality, study, sample]
-                    one_hot_batch[2] = self.file_counter  # sample index
-
-                    # get library calcs
-                    self.adata.obs['int_index'] = list(range(self.adata.shape[0]))
-                    # For zarr files, we'll use simple library calculations
-                    total_counts = np.sum(self.adata.X, axis=1)
-                    log_counts = np.log(total_counts + 1)
-                    self.l_mean_all = np.mean(log_counts)
-                    self.l_var_all = np.var(log_counts)
-
-            # check if adata.X is a sparse matrix
-            if isinstance(self.adata.X, np.ndarray): # Changed from csr_matrix to np.ndarray for zarr
-                X_curr = np.squeeze(self.adata.X[self.cell_counter, :])
-            else: # This case should ideally not be reached for zarr
-                X_curr = np.squeeze(self.adata.X[self.cell_counter, :])
-            
-
-            if self.predict_mode:
-                # make return
-                datum = {
-                    "x": torch.from_numpy(X_curr.astype("int32")),
-                    "locate": torch.tensor([self.file_counter, self.adata.obs['int_index'].values.tolist()[self.cell_counter]]),
-                    "feature_presence_mask": torch.from_numpy(self.feature_presence_mask),                
+        while self.file_counter < self.end_file:
+            if self.current_file != self.file_paths[self.file_counter]:
+                self._load_file(self.file_counter)
+                self.current_file = self.file_paths[self.file_counter]
+            if self.row_counter < self.rows_in_file:
+                i = self.row_counter
+                # Always create a full-length vector for the reference gene list
+                X_full = np.zeros(len(self.reference_gene_list), dtype="int32")
+                if self.is_sparse:
+                    row = extract_zarr_row(self.current_X, i)
+                    # Fill only the genes present in the zarr file
+                    for j, gidx in enumerate(self.current_gene_indices):
+                        X_full[j] = row[gidx]
+                else:
+                    row = np.array(self.current_X[i, :])
+                    for j, gidx in enumerate(self.current_gene_indices):
+                        X_full[j] = row[gidx]
+                X_curr = X_full
+                # Extract metadata from obs
+                obs = self.current_obs
+                soma_joinid = int(obs['soma_joinid'][i]) if 'soma_joinid' in obs else i
+                cell_idx = i
+                sample_idx = int(obs['sample_idx'][i]) if 'sample_idx' in obs else 0
+                modality_idx = int(obs['modality_idx'][i]) if 'modality_idx' in obs else 0
+                study_idx = int(obs['study_idx'][i]) if 'study_idx' in obs else 0
+                if self.feature_presence_matrix is not None:
+                    feature_presence_mask = self.feature_presence_matrix[sample_idx, :]
+                else:
+                    feature_presence_mask = np.ones(len(self.reference_gene_list), dtype=bool)
+                base = {
+                    "x": torch.from_numpy(X_curr),
+                    "soma_joinid": torch.tensor(soma_joinid, dtype=torch.int64),
+                    "cell_idx": torch.tensor(cell_idx, dtype=torch.int64),
+                    "feature_presence_mask": torch.from_numpy(feature_presence_mask),
                 }
-
-            else:
-                
-                local_l_mean = self.l_mean_all
-                local_l_var = self.l_var_all
-
-                # make return
-                datum = {
-                    "x": torch.from_numpy(X_curr.astype("int32")),
-                    "batch_emb": torch.from_numpy(one_hot_batch),
+                if self.predict_mode:
+                    self.row_counter += 1
+                    return base
+                one_hot_modality = F.one_hot(torch.tensor(modality_idx, dtype=torch.long), num_classes=self.num_modalities).float() if self.num_modalities else torch.tensor([1.0])
+                one_hot_study = F.one_hot(torch.tensor(study_idx, dtype=torch.long), num_classes=self.num_studies).float() if self.num_studies else torch.tensor([1.0])
+                one_hot_sample = F.one_hot(torch.tensor(sample_idx, dtype=torch.long), num_classes=self.num_samples).float() if self.num_samples else torch.tensor([1.0])
+                if self.library_calcs is not None and sample_idx in self.library_calcs.index:
+                    local_l_mean = self.library_calcs.loc[sample_idx, "library_log_means"]
+                    local_l_var = self.library_calcs.loc[sample_idx, "library_log_vars"]
+                else:
+                    local_l_mean = 0.0
+                    local_l_var = 1.0
+                base.update({
+                    "modality_vec": one_hot_modality,
+                    "study_vec": one_hot_study,
+                    "sample_vec": one_hot_sample,
                     "local_l_mean": torch.tensor(local_l_mean),
                     "local_l_var": torch.tensor(local_l_var),
-                    "feature_presence_mask": torch.from_numpy(self.feature_presence_mask),
-                    "locate": torch.tensor([self.file_counter, self.adata.obs['int_index'].values.tolist()[self.cell_counter]])
-                    }
-
-
-            # if done with all cells in adata, set cell counter to 0 and move on to next file
-            if self.cell_counter + 1 == self.adata.shape[0]:
-                del self.adata
-                gc.collect()
-
-                self.cell_counter = 0
-                self.file_counter += 1     
+                })
+                self.row_counter += 1
+                return base
             else:
-                self.cell_counter += 1   
-             
-            return datum
-
-        else:
-            raise StopIteration
+                self.file_counter += 1
+                self.current_file = None
+        raise StopIteration
 
         
 

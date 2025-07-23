@@ -17,6 +17,7 @@ from pyarrow.lib import ArrowInvalid
 import anndata
 
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
+from ml_benchmarking.bascvi.datamodule.zarr.utils import extract_zarr_chunk
 
 
 def log_mean(X):
@@ -170,31 +171,6 @@ class LibraryCalculator:
         self.feature_presence_matrix = np.ones((len(zarr_dirs), len(self.var_df)), dtype=bool)
         self.samples_list = list(range(len(zarr_dirs)))
 
-    def extract_zarr_chunk(self, X, start, stop):
-
-        # Read CSR components
-        data = X["data"]
-        indices = X["indices"]
-        indptr = X["indptr"]
-        shape = tuple(X.attrs["shape"])  # (n_obs, n_vars)
-
-        # Row-level index pointers
-        indptr_start = indptr[start]
-        indptr_stop = indptr[stop]
-
-        # Extract the relevant data for the slice
-        data_slice = data[indptr_start:indptr_stop]
-        indices_slice = indices[indptr_start:indptr_stop]
-
-        # Adjust indptr to be relative to this slice
-        indptr_slice = indptr[start:stop + 1] - indptr_start
-
-        # Build CSR matrix for the chunk
-        X_chunk = csr_matrix((data_slice, indices_slice, indptr_slice), shape=(stop - start, shape[1]))
-
-        return X_chunk
-
-
     def filter_and_generate_library_calcs(self, iterative=True):
 
         """
@@ -252,7 +228,7 @@ class LibraryCalculator:
 
                     stop = min(start + chunk_size, n_rows)
 
-                    X_chunk = self.extract_zarr_chunk(X, start, stop)
+                    X_chunk = extract_zarr_chunk(X, start, stop)
 
                     gene_counts = np.array((X_chunk > 0).sum(axis=1)).ravel()
 
