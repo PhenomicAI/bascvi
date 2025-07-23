@@ -15,6 +15,7 @@ from tqdm import tqdm
 import tiledbsoma as soma
 from pyarrow.lib import ArrowInvalid
 import anndata
+import hashlib
 
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 from ml_benchmarking.bascvi.datamodule.zarr.utils import extract_zarr_chunk
@@ -66,7 +67,8 @@ class LibraryCalculator:
         self.feature_presence_matrix = None
         self.samples_list = []
         self.library_calcs = None
-        self.filter_pass_ids = None
+        self.zarr_path_hashes = [] # Initialize for zarr
+        # filter_pass_ids is only needed for SOMA
         
     def load_soma_data(self):
         """Load data from SOMA experiment."""
@@ -112,45 +114,37 @@ class LibraryCalculator:
 
         self.samples_list = sorted(self.obs_df["sample_idx"].unique().tolist())
         
-    def load_zarr_data(self):
+    def load_zarr_data(self, zarr_dirs):
+
         """Load data from zarr files using zarr API only (no anndata.read_zarr)."""
-
-        # Find all zarr files
-        zarr_dirs = [str(p) for p in Path(self.data_path).iterdir() if p.is_dir() and p.name.endswith('.zarr')]
-        if len(zarr_dirs) == 0:
-            raise ValueError("No .zarr files found in the provided directory.")
-
         # Load var from first file
         z0 = zarr.open(zarr_dirs[0], mode='r')
         var_group = z0["var"]
-
-        # Extract columns
         var_dict = {}
         for col_name in var_group.array_keys():
             var_dict[col_name] = var_group[col_name][...]
-
-        # Construct DataFrame
         var_df = pd.DataFrame(var_dict)
         self.var_df = var_df.reset_index(drop=True)
-
-        # Compose obs_df for all files
         obs_dfs = []
+        feature_presence_rows = []
+        zarr_path_hashes = []
+        # Use the reference gene list as self.genes_to_use (should be a list of gene names)
+        reference_gene_list = self.genes_to_use
         for i, zarr_path in enumerate(zarr_dirs):
-
             study_name = zarr_path.split("/")[-1].split(".")[0]
-
             z = zarr.open(zarr_path, mode='r')
             obs_group = z['obs']
-
-            # Extract columns into a dictionary
+            
             obs_dict = {}
             for col_name in obs_group.array_keys():
                 obs_dict[col_name] = obs_group[col_name][...]
 
-            # Construct pandas DataFrame
+            obs_dict['__row_idx'] = np.arange(obs_dict['barcode'].shape[0])
             obs = pd.DataFrame(obs_dict)
 
             n_obs = obs.shape[0]
+            zarr_path_hash = hashlib.md5(zarr_path.encode()).hexdigest()
+            zarr_path_hashes.append(zarr_path_hash)
 
             print(study_name,obs.shape[0])
 
@@ -158,18 +152,27 @@ class LibraryCalculator:
                 'soma_joinid': range(i * 10000, i * 10000 + n_obs),
                 'barcode': obs['barcode'],
                 'study_name': study_name,
+                '__row_idx': obs['__row_idx'],
                 'scrnaseq_protocol': 'zarr_protocol',
                 'modality_idx': 0,
                 'study_idx': i,
                 'sample_idx': obs['sample_idx'],
-                'nnz': obs['nnz']
+                'nnz': obs['nnz'],
+                'zarr_path': zarr_path,
+                'zarr_path_hash': zarr_path_hash
             })
-
+            
             obs_dfs.append(file_obs)
+            
+            # Feature presence: use var['gene'] in this file
+            file_genes = set([str(g).lower() for g in z['var']['gene'][...]] )
+            present = np.array([g in file_genes for g in reference_gene_list], dtype=bool)
+            feature_presence_rows.append(present)
 
         self.obs_df = pd.concat(obs_dfs, ignore_index=True)
-        self.feature_presence_matrix = np.ones((len(zarr_dirs), len(self.var_df)), dtype=bool)
+        self.feature_presence_matrix = np.stack(feature_presence_rows, axis=0)
         self.samples_list = list(range(len(zarr_dirs)))
+        self.zarr_path_hashes = zarr_path_hashes
 
     def filter_and_generate_library_calcs(self, iterative=True):
 
@@ -185,7 +188,7 @@ class LibraryCalculator:
 
             print("Loading cached metadata...")
             with open(filter_pass_ids_path, 'rb') as f:
-                self.filter_pass_ids = pickle.load(f)
+                filter_pass_ids = pickle.load(f)
             print(" - loaded cached filter pass")
             self.library_calcs = pd.read_csv(l_means_vars_path)
             print(" - loaded cached library calcs")
@@ -193,7 +196,7 @@ class LibraryCalculator:
             if max(self.library_calcs["sample_idx"].to_list()) == max(self.samples_list):
                 print("   - library calcs completed!")
                 self.library_calcs.set_index("sample_idx")
-                print(len(self.filter_pass_ids), " cells passed final filter.")
+                print(len(filter_pass_ids), " cells passed final filter.")
                 return
 
             else:
@@ -208,54 +211,43 @@ class LibraryCalculator:
             self.l_means = []
             self.l_vars = []
             samples_run = []
+            
         print("Generating sample metadata...")
 
         if self.data_source == "zarr":
-
             zarr_dirs = [str(p) for p in Path(self.data_path).iterdir() if p.is_dir() and p.name.endswith('.zarr')]
-            
+            rows = []
             for sample_idx, zarr_path in enumerate(zarr_dirs):
-
                 z = zarr.open(zarr_path, mode='r')
                 X = z['X']
                 n_rows = X.attrs["shape"][0]
-                
                 chunk_size = 1000
                 cell_mask_all = []
                 log_means = []
-                
                 for start in range(0, n_rows, chunk_size):
-
                     stop = min(start + chunk_size, n_rows)
-
                     X_chunk = extract_zarr_chunk(X, start, stop)
-
                     gene_counts = np.array((X_chunk > 0).sum(axis=1)).ravel()
-
                     cell_mask = gene_counts > 300
                     cell_mask_all.extend(cell_mask.tolist())
-
                     if np.any(cell_mask):
                         log_means.append(log_mean(X_chunk[cell_mask, :]))
-                
                 mean_val = float(np.mean(log_means))
                 var_val = float(np.var(log_means))
-
-                print(f"sample {sample_idx}, # passing cells: {np.sum(cell_mask_all)}")
-
-                self.l_means.append(mean_val)
-                self.l_vars.append(var_val)
-
-                samples_run.append(sample_idx)
-                cell_ids = np.where(cell_mask_all)[0] + sample_idx * 10000
-                filter_pass_ids.extend(cell_ids.tolist())
-                
-                with open(filter_pass_ids_path, 'wb') as f:
-                    pickle.dump(filter_pass_ids, f)
-                self.library_calcs = pd.DataFrame({"sample_idx": samples_run,
-                                                   "library_log_means": self.l_means,
-                                                   "library_log_vars": self.l_vars})
-                self.library_calcs.to_csv(l_means_vars_path)
+                zarr_path_hash = hashlib.md5(zarr_path.encode()).hexdigest()
+                study_name = zarr_path.split("/")[-1].split(".")[0]
+                for row_idx in range(n_rows):
+                    rows.append({
+                        "sample_idx": sample_idx,
+                        "library_log_means": mean_val,
+                        "library_log_vars": var_val,
+                        "zarr_path_hash": zarr_path_hash,
+                        "zarr_path": zarr_path,
+                        "study_name": study_name,
+                        "__row_idx": row_idx
+                    })
+            self.library_calcs = pd.DataFrame(rows)
+            self.library_calcs.to_csv(l_means_vars_path, index=False)
         else:
             # Use existing soma logic
             if iterative:
@@ -270,13 +262,14 @@ class LibraryCalculator:
                     self.library_calcs.to_csv(l_means_vars_path)
             else:
                 self._process_soma_all_samples(filter_pass_ids, samples_run)
-        self.filter_pass_ids = set(filter_pass_ids)
+            self.filter_pass_ids = set(filter_pass_ids)
+            with open(filter_pass_ids_path, 'wb') as f:
+                pickle.dump(self.filter_pass_ids, f)
+            print(len(self.filter_pass_ids), " cells passed final filter.")
         self.library_calcs.to_csv(l_means_vars_path)
-        with open(filter_pass_ids_path, 'wb') as f:
-            pickle.dump(self.filter_pass_ids, f)
-        print(len(self.filter_pass_ids), " cells passed final filter.")
         self.library_calcs.set_index("sample_idx")
         
+
     def _process_soma_sample(self, sample_idx, filter_pass_ids, samples_run):
         """Process a single SOMA sample."""
         feature_presence_matrix = self.feature_presence_matrix[sample_idx, :].astype(bool)
@@ -344,6 +337,7 @@ class LibraryCalculator:
             cell_mask = gene_counts > 300
             cell_mask_all.extend(cell_mask.tolist())
             if np.any(cell_mask):
+
                 log_means.append(log_mean(X_chunk[cell_mask, :]))
 
         mean_val = float(np.mean(log_means)) if log_means else 0.0
@@ -361,6 +355,7 @@ class LibraryCalculator:
             
     def _process_soma_all_samples(self, filter_pass_ids, samples_run):
         """Process all SOMA samples at once."""
+        
         with open_soma_experiment(self.data_path) as soma_experiment:
             X = soma_experiment.ms["RNA"]["X"]["row_raw"].read(coords=(self.obs_df.soma_joinid.values.tolist(), )).coos(
                 shape=(soma_experiment.obs.count, soma_experiment.ms["RNA"].var.count)).concat().to_scipy().tocsr()[self.obs_df.soma_joinid.values.tolist(), :]
@@ -389,12 +384,12 @@ class LibraryCalculator:
         # This is now just a wrapper for the iterative logic above
         self.filter_and_generate_library_calcs(iterative=True)
         
-    def setup(self):
+    def setup(self, zarr_dirs=None):
         """Setup the library calculator by loading data and computing library statistics."""
         if self.data_source == "soma":
             self.load_soma_data()
         else:  # zarr
-            self.load_zarr_data()
+            self.load_zarr_data(zarr_dirs)
             
         if self.calc_library:
             self.filter_and_generate_library_calcs(iterative=(len(self.obs_df) > 500000))

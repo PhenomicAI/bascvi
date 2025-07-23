@@ -12,13 +12,17 @@ import zarr
 from torch.utils.data import DataLoader 
 
 from ml_benchmarking.bascvi.datamodule.zarr.dataset import ZarrDataset
-from ml_benchmarking.bascvi.datamodule.library_calculations import LibraryCalculator
 from ml_benchmarking.bascvi.datamodule.zarr.utils import get_or_create_feature_presence_matrix
+from ml_benchmarking.bascvi.datamodule.library_calculations import LibraryCalculator
+
+import hashlib
+import json
 
 def load_gene_list(gene_list_path: str) -> List[str]:
     with open(gene_list_path, 'r') as f:
         genes = [line.strip().lower() for line in f if line.strip()]
     return genes
+
 
 class ZarrDataModule(pl.LightningDataModule):
     def __init__(
@@ -49,11 +53,29 @@ class ZarrDataModule(pl.LightningDataModule):
         else:
             z0 = zarr.open(self.file_paths[0], mode='r')
             self.gene_list = [str(g).lower() for g in z0['var']['gene'][...]]
+        
         # Find zarr files
-        zarr_dirs = [str(p) for p in Path(self.data_root_dir).iterdir() if p.is_dir() and p.name.endswith('.zarr')]
-        # Compute or load feature presence matrix
-        cache_path = os.path.join(self.root_dir, "feature_presence_matrix.npy")
-        feature_presence_matrix = get_or_create_feature_presence_matrix(zarr_dirs, self.gene_list, cache_path)
+        zarr_dirs = sorted([str(p) for p in Path(self.data_root_dir).iterdir() if p.is_dir() and p.name.endswith('.zarr')])
+        zarr_dirs_cache_path = os.path.join(self.root_dir, 'zarr_dirs.json')
+        library_calcs_cache_path = os.path.join(self.root_dir, 'cached_calcs_and_filter', 'l_means_vars.csv')
+        # Compute a hash of the zarr_dirs list for change detection
+        def hash_list(lst):
+            return hashlib.md5(json.dumps(lst, sort_keys=True).encode()).hexdigest()
+        current_zarr_dirs_hash = hash_list(zarr_dirs)
+        cached_zarr_dirs = None
+        cached_zarr_dirs_hash = None
+        rerun_library_calcs = False
+        if os.path.exists(zarr_dirs_cache_path):
+            with open(zarr_dirs_cache_path, 'r') as f:
+                cached_zarr_dirs = json.load(f)
+                cached_zarr_dirs_hash = hash_list(cached_zarr_dirs)
+            if cached_zarr_dirs_hash != current_zarr_dirs_hash:
+                rerun_library_calcs = True
+        else:
+            rerun_library_calcs = True
+        # Save the current zarr_dirs list for future runs
+        with open(zarr_dirs_cache_path, 'w') as f:
+            json.dump(zarr_dirs, f)
         # Initialize library calculator for zarr data
         library_calc = LibraryCalculator(
             data_source="zarr",
@@ -63,10 +85,24 @@ class ZarrDataModule(pl.LightningDataModule):
             calc_library=True,
             batch_keys={"modality": "scrnaseq_protocol", "study": "study_name", "sample": "sample_idx"}
         )
-        library_calc.setup()
+        def hash_path(path):
+            return hashlib.md5(path.encode()).hexdigest()
+        current_hashes = [hash_path(p) for p in zarr_dirs]
+        if rerun_library_calcs or not os.path.exists(library_calcs_cache_path):
+            library_calc.setup(zarr_dirs=zarr_dirs)
+        else:
+            import pandas as pd
+            cached_df = pd.read_csv(library_calcs_cache_path)
+            if 'zarr_path_hash' in cached_df.columns:
+                cached_df = cached_df.set_index('zarr_path_hash').loc[current_hashes].reset_index()
+            cached_df.to_csv(library_calcs_cache_path, index=False)
+            # Assign cached_df to library_calc.library_calcs so downstream code uses the cached version
+            library_calc.library_calcs = cached_df
+            
         self.obs_df = library_calc.obs_df
         self.var_df = library_calc.var_df
-        self.feature_presence_matrix = feature_presence_matrix
+        self.feature_presence_matrix = library_calc.feature_presence_matrix
+
         self.samples_list = library_calc.samples_list
         self.library_calcs = library_calc.get_library_calcs()
         
@@ -114,6 +150,7 @@ class ZarrDataModule(pl.LightningDataModule):
 
         if stage == "fit":
             print("Stage = Fitting")
+
             self.train_dataset = ZarrDataset(
                 file_paths=self.file_paths,
                 reference_gene_list=self.gene_list,
@@ -128,7 +165,9 @@ class ZarrDataModule(pl.LightningDataModule):
                 num_studies=self.num_studies,
                 num_samples=self.num_samples,
             )
+
             val_files = self.file_paths[:max(1, len(self.file_paths) // 5)]
+
             self.val_dataset = ZarrDataset(
                 file_paths=val_files,
                 reference_gene_list=self.gene_list,
@@ -143,10 +182,12 @@ class ZarrDataModule(pl.LightningDataModule):
                 num_studies=self.num_studies,
                 num_samples=self.num_samples,
             )
+
         elif stage == "predict":
             print("Stage = Predicting on Zarr files")
             print("# of files: ", len(self.file_paths))
             print("Pretrained batch size: ", self.pretrained_batch_size)
+
             self.pred_dataset = ZarrDataset(
                 file_paths=self.file_paths,
                 reference_gene_list=self.gene_list,
