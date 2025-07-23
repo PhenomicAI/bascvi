@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 
 from ml_benchmarking.bascvi.datamodule.zarr.dataset import ZarrDataset
 from ml_benchmarking.bascvi.datamodule.library_calculations import LibraryCalculator
+from ml_benchmarking.bascvi.datamodule.zarr.utils import get_or_create_feature_presence_matrix
 
 def load_gene_list(gene_list_path: str) -> List[str]:
     with open(gene_list_path, 'r') as f:
@@ -45,9 +46,13 @@ class ZarrDataModule(pl.LightningDataModule):
         elif self.pretrained_gene_list is not None:
             self.gene_list = [g.lower() for g in self.pretrained_gene_list]
         else:
-            # Use genes from the first zarr file
             z0 = zarr.open(self.file_paths[0], mode='r')
             self.gene_list = [str(g).lower() for g in z0['var']['gene'][...]]
+        # Find zarr files
+        zarr_dirs = [str(p) for p in Path(self.data_root_dir).iterdir() if p.is_dir() and p.name.endswith('.zarr')]
+        # Compute or load feature presence matrix
+        cache_path = os.path.join(self.root_dir, "feature_presence_matrix.npy")
+        feature_presence_matrix = get_or_create_feature_presence_matrix(zarr_dirs, self.gene_list, cache_path)
         # Initialize library calculator for zarr data
         library_calc = LibraryCalculator(
             data_source="zarr",
@@ -57,14 +62,10 @@ class ZarrDataModule(pl.LightningDataModule):
             calc_library=True,
             batch_keys={"modality": "scrnaseq_protocol", "study": "study_name", "sample": "sample_idx"}
         )
-        
-        # Setup library calculator
         library_calc.setup()
-        
-        # Get data from library calculator
         self.obs_df = library_calc.obs_df
         self.var_df = library_calc.var_df
-        self.feature_presence_matrix = library_calc.feature_presence_matrix
+        self.feature_presence_matrix = feature_presence_matrix
         self.samples_list = library_calc.samples_list
         self.library_calcs = library_calc.get_library_calcs()
         
