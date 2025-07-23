@@ -66,6 +66,7 @@ class TileDBSomaIterDataModule(pl.LightningDataModule):
         self.train_column = train_column
         self.random_seed = random_seed
         self.batch_keys = batch_keys
+        self.backend = "soma"
 
 
     def filter_and_generate_library_calcs(self, iterative=True):

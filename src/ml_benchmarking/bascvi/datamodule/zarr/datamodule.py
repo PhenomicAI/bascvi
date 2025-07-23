@@ -37,6 +37,7 @@ class ZarrDataModule(pl.LightningDataModule):
         self.pretrained_gene_list = pretrained_gene_list
         self.root_dir = root_dir
         self.random_seed = random_seed
+        self.backend = "zarr"
         assert os.path.exists(data_root_dir), f"Data root directory {data_root_dir} does not exist"
 
     def setup(self, stage: Optional[str] = None):
