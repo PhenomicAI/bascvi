@@ -205,17 +205,17 @@ class ZarrDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         """Return DataLoader for training dataset."""
-        return DataLoader(self.train_dataset, **self.dataloader_args)
+        return DataLoader(self.train_dataset, persistent_workers=True, **self.dataloader_args)
 
     def val_dataloader(self):
         """Return DataLoader for validation dataset."""
         loader_args = copy.copy(self.dataloader_args)
-        return DataLoader(self.val_dataset, **loader_args)
+        return DataLoader(self.val_dataset, persistent_workers=True, **loader_args)
 
     def predict_dataloader(self):
         """Return DataLoader for prediction dataset."""
         loader_args = copy.copy(self.dataloader_args)
-        return DataLoader(self.pred_dataset, **loader_args)
+        return DataLoader(self.pred_dataset, persistent_workers=True, **loader_args)
         
     def transfer_batch_to_device(self, batch, device, dataloader_idx):
         for key, value in batch.items():

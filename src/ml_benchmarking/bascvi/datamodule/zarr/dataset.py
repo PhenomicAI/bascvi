@@ -39,23 +39,20 @@ class ZarrDataset(IterableDataset):
         self.num_samples = num_samples
         self._len = sum(zarr_len_dict[p] for p in file_paths)
         self.indices = None
-        self.current_z = None
-        self.current_var = None
-        self.current_obs = None
-        self.current_X = None
-        self.current_gene_indices = None
         self.is_sparse = False
         import hashlib
         self.hash_to_path = {hashlib.md5(p.encode()).hexdigest(): p for p in file_paths}
         self.hash_to_idx = {h: i for i, h in enumerate(self.hash_to_path.keys())}
-        # Convert feature_presence_matrix to a hash-based dict for robust lookup
+        # Feature presence mask as hash dict
         self.feature_presence_matrix = None
         if feature_presence_matrix is not None:
-            # Assume order matches file_paths
             self.feature_presence_matrix = {
                 h: feature_presence_matrix[i, :]
                 for i, h in enumerate(self.hash_to_path.keys())
             }
+        # Per-file gene index and gene name cache
+        self.gene_indices_cache = {}
+        self.lower_genes_cache = {}
 
     def __len__(self):
         return self._len
@@ -70,14 +67,31 @@ class ZarrDataset(IterableDataset):
         else:
             self.indices = np.arange(self._len)
         self.row_counter = 0
-        self.current_z = None
-        self.current_var = None
-        self.current_obs = None
-        self.current_X = None
-        self.current_gene_indices = None
-        self.is_sparse = False
         self.current_file_hash = None
+        # Per-worker zarr file cache
+        self.zarr_file_cache = {}
         return self
+
+    def _get_zarr_file(self, file_hash):
+        if file_hash not in self.zarr_file_cache:
+            zarr_path = self.hash_to_path[file_hash]
+            self.zarr_file_cache[file_hash] = zarr.open(zarr_path, mode='r')
+        return self.zarr_file_cache[file_hash]
+
+    def _get_gene_indices(self, file_hash):
+        if file_hash not in self.gene_indices_cache:
+            z = self._get_zarr_file(file_hash)
+            var_genes = self._get_lower_genes(file_hash)
+            gene_indices = [var_genes.index(g) for g in self.reference_gene_list if g in var_genes]
+            self.gene_indices_cache[file_hash] = gene_indices
+        return self.gene_indices_cache[file_hash]
+
+    def _get_lower_genes(self, file_hash):
+        if file_hash not in self.lower_genes_cache:
+            z = self._get_zarr_file(file_hash)
+            var_genes = [str(g).lower() for g in z['var']['gene'][...]]
+            self.lower_genes_cache[file_hash] = var_genes
+        return self.lower_genes_cache[file_hash]
 
     def __next__(self):
         if self.row_counter >= len(self.indices):
@@ -86,34 +100,22 @@ class ZarrDataset(IterableDataset):
         obs_row = self.library_calcs.iloc[idx]
         file_hash = obs_row['zarr_path_hash']
         row_idx = int(obs_row['__row_idx'])
-        # Load zarr file if needed
-        if self.current_z is None or self.current_file_hash != file_hash:
-            zarr_path = self.hash_to_path[file_hash]
-            z = zarr.open(zarr_path, mode='r')
-            var = z['var']
-            obs = z['obs']
-            X = z['X']
-            var_genes = [str(g).lower() for g in var['gene'][...]]
-            gene_indices = [var_genes.index(g) for g in self.reference_gene_list if g in var_genes]
-            feature_presence_mask = self.feature_presence_matrix[file_hash] if self.feature_presence_matrix is not None else np.ones(len(self.reference_gene_list), dtype=bool)
-            self.current_z = z
-            self.current_var = var
-            self.current_obs = obs
-            self.current_X = X
-            self.current_gene_indices = gene_indices
-            self.is_sparse = all(k in X for k in ['data', 'indices', 'indptr'])
-            self.current_file_hash = file_hash
-        else:
-            feature_presence_mask = self.feature_presence_matrix[file_hash] if self.feature_presence_matrix is not None else np.ones(len(self.reference_gene_list), dtype=bool)
+        z = self._get_zarr_file(file_hash)
+        X = z['X']
+        gene_indices = self._get_gene_indices(file_hash)
+        feature_presence_mask = self.feature_presence_matrix[file_hash] if self.feature_presence_matrix is not None else np.ones(len(self.reference_gene_list), dtype=bool)
+        # Batch reading: if block_size > 1, read a chunk of rows at once (optional, here we keep single row for compatibility)
+        # Efficient X_full fill using numpy advanced indexing
         X_full = np.zeros(len(self.reference_gene_list), dtype="int32")
-        if self.is_sparse:
-            row = extract_zarr_row(self.current_X, row_idx)
-            for j, gidx in enumerate(self.current_gene_indices):
-                X_full[j] = row[gidx]
+        if all(k in X for k in ['data', 'indices', 'indptr']):
+            from ml_benchmarking.bascvi.datamodule.zarr.utils import extract_zarr_row
+            row = extract_zarr_row(X, row_idx)
+            if gene_indices:
+                X_full[np.arange(len(gene_indices))] = row[gene_indices]
         else:
-            row = np.array(self.current_X[row_idx, :])
-            for j, gidx in enumerate(self.current_gene_indices):
-                X_full[j] = row[gidx]
+            row = np.array(X[row_idx, :])
+            if gene_indices:
+                X_full[np.arange(len(gene_indices))] = row[gene_indices]
         X_curr = X_full
         soma_joinid = int(obs_row['soma_joinid']) if 'soma_joinid' in obs_row else idx
         cell_idx = idx
