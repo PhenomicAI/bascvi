@@ -147,6 +147,7 @@ class ZarrDataModule(pl.LightningDataModule):
         print('# Genes: ', self.num_genes)
         print('# Total Cells: ', self.num_cells)
         print('# Samples: ', self.num_samples)
+        print('# Total blocks: ', self.num_total_blocks)
 
         if stage == "fit":
             print("Stage = Fitting")

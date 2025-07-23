@@ -175,43 +175,28 @@ class LibraryCalculator:
         self.zarr_path_hashes = zarr_path_hashes
 
     def filter_and_generate_library_calcs(self, iterative=True):
-
         """
         Filter cells and compute per-sample library statistics (mean/var of log counts).
-        For zarr, always process one file/sample at a time and X in row chunks.
+        For zarr, process one file/sample at a time and X in row chunks.
+        For soma, process all samples, with caching and resuming support.
         """
-
         filter_pass_ids_path = os.path.join(self.root_dir, "cached_calcs_and_filter", 'filter_pass_ids.pkl')
         l_means_vars_path = os.path.join(self.root_dir, "cached_calcs_and_filter", 'l_means_vars.csv')
 
-        if os.path.exists(filter_pass_ids_path) and os.path.exists(l_means_vars_path):
+        def compute_log_stats(X, chunk_size=1000):
+            n_rows = X.attrs["shape"][0]
+            log_means = []
+            for start in range(0, n_rows, chunk_size):
+                stop = min(start + chunk_size, n_rows)
+                X_chunk = extract_zarr_chunk(X, start, stop)
+                gene_counts = np.array((X_chunk > 0).sum(axis=1)).ravel()
+                cell_mask = gene_counts > 300
+                if np.any(cell_mask):
+                    log_means.append(log_mean(X_chunk[cell_mask, :]))
+            mean_val = float(np.mean(log_means)) if log_means else 0.0
+            var_val = float(np.var(log_means)) if log_means else 1.0
+            return mean_val, var_val
 
-            print("Loading cached metadata...")
-            with open(filter_pass_ids_path, 'rb') as f:
-                filter_pass_ids = pickle.load(f)
-            print(" - loaded cached filter pass")
-            self.library_calcs = pd.read_csv(l_means_vars_path)
-            print(" - loaded cached library calcs")
-
-            if max(self.library_calcs["sample_idx"].to_list()) == max(self.samples_list):
-                print("   - library calcs completed!")
-                self.library_calcs.set_index("sample_idx")
-                print(len(filter_pass_ids), " cells passed final filter.")
-                return
-
-            else:
-                print("   - resuming library calcs...")
-                self.l_means = self.library_calcs["library_log_means"].to_list()
-                self.l_vars = self.library_calcs["library_log_vars"].to_list()
-                samples_run = self.library_calcs["sample_idx"].to_list()
-        else:
-
-            os.makedirs(os.path.join(self.root_dir, "cached_calcs_and_filter"), exist_ok=True)
-            filter_pass_ids = []
-            self.l_means = []
-            self.l_vars = []
-            samples_run = []
-            
         print("Generating sample metadata...")
 
         if self.data_source == "zarr":
@@ -220,22 +205,10 @@ class LibraryCalculator:
             for sample_idx, zarr_path in enumerate(zarr_dirs):
                 z = zarr.open(zarr_path, mode='r')
                 X = z['X']
-                n_rows = X.attrs["shape"][0]
-                chunk_size = 1000
-                cell_mask_all = []
-                log_means = []
-                for start in range(0, n_rows, chunk_size):
-                    stop = min(start + chunk_size, n_rows)
-                    X_chunk = extract_zarr_chunk(X, start, stop)
-                    gene_counts = np.array((X_chunk > 0).sum(axis=1)).ravel()
-                    cell_mask = gene_counts > 300
-                    cell_mask_all.extend(cell_mask.tolist())
-                    if np.any(cell_mask):
-                        log_means.append(log_mean(X_chunk[cell_mask, :]))
-                mean_val = float(np.mean(log_means))
-                var_val = float(np.var(log_means))
+                mean_val, var_val = compute_log_stats(X)
                 zarr_path_hash = hashlib.md5(zarr_path.encode()).hexdigest()
                 study_name = zarr_path.split("/")[-1].split(".")[0]
+                n_rows = X.attrs["shape"][0]
                 for row_idx in range(n_rows):
                     rows.append({
                         "sample_idx": sample_idx,
@@ -249,26 +222,36 @@ class LibraryCalculator:
             self.library_calcs = pd.DataFrame(rows)
             self.library_calcs.to_csv(l_means_vars_path, index=False)
         else:
-            # Use existing soma logic
-            if iterative:
-                for sample_idx_i in tqdm(range(len(samples_run), len(self.samples_list))):
-                    sample_idx = self.samples_list[sample_idx_i]
-                    self._process_soma_sample(sample_idx, filter_pass_ids, samples_run)
-                    with open(filter_pass_ids_path, 'wb') as f:
-                        pickle.dump(filter_pass_ids, f)
-                    self.library_calcs = pd.DataFrame({"sample_idx": samples_run,
-                                                       "library_log_means": self.l_means,
-                                                       "library_log_vars": self.l_vars})
-                    self.library_calcs.to_csv(l_means_vars_path)
+            # --- SOMA logic: load or compute, always use local variables ---
+            if os.path.exists(filter_pass_ids_path) and os.path.exists(l_means_vars_path):
+                with open(filter_pass_ids_path, 'rb') as f:
+                    filter_pass_ids = pickle.load(f)
+                library_calcs = pd.read_csv(l_means_vars_path)
+                if max(library_calcs["sample_idx"].to_list()) == max(self.samples_list):
+                    self.library_calcs = library_calcs.set_index("sample_idx")
+                    self.filter_pass_ids = set(filter_pass_ids)
+                    print(f"Loaded cached library calcs ({len(self.filter_pass_ids)} cells passed filter)")
+                    return
+                else:
+                    l_means = library_calcs["library_log_means"].to_list()
+                    l_vars = library_calcs["library_log_vars"].to_list()
+                    samples_run = library_calcs["sample_idx"].to_list()
             else:
-                self._process_soma_all_samples(filter_pass_ids, samples_run)
+                filter_pass_ids, l_means, l_vars, samples_run = [], [], [], []
+            for sample_idx in tqdm(self.samples_list):
+                self._process_soma_sample(sample_idx, filter_pass_ids, samples_run)
+                l_means.append(self.l_means[-1])
+                l_vars.append(self.l_vars[-1])
             self.filter_pass_ids = set(filter_pass_ids)
+            self.library_calcs = pd.DataFrame({
+                "sample_idx": self.samples_list,
+                "library_log_means": l_means,
+                "library_log_vars": l_vars
+            }).set_index("sample_idx")
+            self.library_calcs.to_csv(l_means_vars_path, index=True)
             with open(filter_pass_ids_path, 'wb') as f:
                 pickle.dump(self.filter_pass_ids, f)
-            print(len(self.filter_pass_ids), " cells passed final filter.")
-        self.library_calcs.to_csv(l_means_vars_path)
-        self.library_calcs.set_index("sample_idx")
-        
+            print(f"Computed library calcs ({len(self.filter_pass_ids)} cells passed filter)")
 
     def _process_soma_sample(self, sample_idx, filter_pass_ids, samples_run):
         """Process a single SOMA sample."""
