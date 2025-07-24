@@ -17,9 +17,12 @@ logger = logging.getLogger("pytorch_lightning")
 def get_datamodule(config):
     """Factory for datamodule based on config."""
     options = config["datamodule"]["options"]
-    options["root_dir"] = config["run_save_dir"]
     class_name = config["datamodule"]["class_name"]
-    
+
+    # Only add root_dir for datamodules that need it
+    if class_name != "ZarrDataModule":
+        options["root_dir"] = config["run_save_dir"]
+
     # Handle ZarrDataModule specially - it needs pretrained_gene_list loaded from file
     if class_name == "ZarrDataModule":
         if "pretrained_gene_list_path" in options:
@@ -27,7 +30,10 @@ def get_datamodule(config):
                 pretrained_gene_list = [line.strip() for line in f.readlines()]
             options["pretrained_gene_list"] = pretrained_gene_list
             del options["pretrained_gene_list_path"]
+        # Remove root_dir if present
+        options.pop("root_dir", None)
         return ZarrDataModule(**options)
+
     elif class_name == "TileDBSomaIterDataModule":
         return TileDBSomaIterDataModule(**options)
     elif class_name == "EmbDatamodule":
@@ -39,10 +45,13 @@ def get_datamodule(config):
 
 def get_trainer_and_model(config, datamodule, wandb_logger):
     """Initialize model and trainer from config."""
+
     config['emb_trainer']['gene_list'] = datamodule.gene_list
     config['emb_trainer']['model_args']['n_input'] = datamodule.num_genes
     config['emb_trainer']['model_args']['batch_level_sizes'] = datamodule.batch_level_sizes
-    config["emb_trainer"]["soma_experiment_uri"] = datamodule.soma_experiment_uri
+
+    #config["emb_trainer"]["soma_experiment_uri"] = datamodule.soma_experiment_uri
+    
     module = __import__(
         "ml_benchmarking.bascvi.trainer",
         globals(), locals(),

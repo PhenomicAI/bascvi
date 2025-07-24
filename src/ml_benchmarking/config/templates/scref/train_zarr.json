@@ -7,7 +7,7 @@
     "datamodule": {
         "class_name": "ZarrDataModule",
         "options": {
-            "data_root_dir": "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr/",
+            "data_root_dir": "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr_train_blocks/",
             "pretrained_batch_size": 64,
             "pretrained_gene_list_path": "/home/ubuntu/scREF_test/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",
             "dataloader_args": {

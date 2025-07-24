@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader, get_worker_info
 
 from ml_benchmarking.bascvi.datamodule.soma.dataset import TileDBSomaTorchIterDataset
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
-from ml_benchmarking.bascvi.datamodule.library_calculations import LibraryCalculator, log_mean, log_var, staggered_worker_init
+from ml_benchmarking.bascvi.datamodule.soma.library_calculations import LibraryCalculator, log_mean, log_var, staggered_worker_init
 
 
 class TileDBSomaIterDataModule(pl.LightningDataModule):
