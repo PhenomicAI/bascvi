@@ -62,7 +62,7 @@ def load_sparse_rows_from_zarr(x_group, row_indices, max_block_size: int = 4000)
 
     return sp.vstack(result_rows, format='csr')
 
-def fragment_zarr(input_dir, fragment_dir, target_shuffle_size=50000):
+def fragment_zarr(input_dir, fragment_dir, output_dir, target_shuffle_size=50000):
 
     input_zarr_files = [os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith('.zarr') ]
     input_zarr_files.sort()
@@ -98,7 +98,7 @@ def fragment_zarr(input_dir, fragment_dir, target_shuffle_size=50000):
         z = zarr.open_group(zarr_path, mode='r')
         full_shape = z['X'].attrs['shape']
 
-        print(f"Processing {study_name}  with shape: {full_shape[0]}")
+        print(f"Processing {study_name}  with shape: {full_shape[0]} sample count: {sample_counter} zarr counter: {z_counter}")
 
         # Read gene names from Zarr file
         zarr_genes = z['var']['gene'][:].tolist()
