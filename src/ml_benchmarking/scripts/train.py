@@ -25,13 +25,6 @@ def get_datamodule(config):
 
     # Handle ZarrDataModule specially - it needs pretrained_gene_list loaded from file
     if class_name == "ZarrDataModule":
-        if "pretrained_gene_list_path" in options:
-            with open(options["pretrained_gene_list_path"], 'r') as f:
-                pretrained_gene_list = [line.strip() for line in f.readlines()]
-            options["pretrained_gene_list"] = pretrained_gene_list
-            del options["pretrained_gene_list_path"]
-        # Remove root_dir if present
-        options.pop("root_dir", None)
         return ZarrDataModule(**options)
 
     elif class_name == "TileDBSomaIterDataModule":
@@ -57,6 +50,7 @@ def get_trainer_and_model(config, datamodule, wandb_logger):
         globals(), locals(),
         [config.get("trainer_module_name", "bascvi_trainer")], 0)
     EmbeddingTrainer = getattr(module, config.get("trainer_class_name", "BAScVITrainer"))
+
     if config.get("load_from_checkpoint"):
         logger.info(f"Loading trainer from checkpoint.....")
         model = EmbeddingTrainer.load_from_checkpoint(config["load_from_checkpoint"])

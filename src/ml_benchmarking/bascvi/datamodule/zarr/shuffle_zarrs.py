@@ -62,7 +62,7 @@ def load_sparse_rows_from_zarr(x_group, row_indices, max_block_size: int = 4000)
 
     return sp.vstack(result_rows, format='csr')
 
-def fragment_zarr(input_dir, fragment_dir, output_dir, target_shuffle_size=50000):
+def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle_size=50000):
 
     input_zarr_files = [os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith('.zarr') ]
     input_zarr_files.sort()
@@ -80,9 +80,6 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, target_shuffle_size=50000
     print(f"Fragment number: {fragment_number}")
 
     ### Main code ###
-
-    gene_list = pd.read_csv("/home/ubuntu/scREF_test/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",index_col=0)
-    gene_list = gene_list.index.tolist()
 
     if not os.path.exists(fragment_dir):
         os.makedirs(fragment_dir)
@@ -191,7 +188,21 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, target_shuffle_size=50000
             # Concatenate all gene columns (in order)
             X_final_block = sp.hstack(cols, format='csr')
 
-            ad_write = ad.AnnData(X=X_final_block, obs=obs_df[start:stop], var=var_df)
+            # Filter cells (rows) with at least 300 non-zero gene values
+            gene_counts_per_cell = X_final_block.getnnz(axis=1)  # Number of non-zeros per row
+            cell_mask = gene_counts_per_cell >= 300
+
+            # Skip block if no cells pass the filter
+            if cell_mask.sum() == 0:
+                print(f"Skipping block [{start}:{stop}]: no cells with ≥300 expressed genes.")
+                continue
+
+            # Apply mask to matrix and obs
+            X_final_block_filtered = X_final_block[cell_mask, :]
+            obs_filtered = obs_df[start:stop].iloc[cell_mask.values]
+
+            # Write AnnData object
+            ad_write = ad.AnnData(X=X_final_block_filtered, obs=obs_filtered, var=var_df)
             
             print("Writing fragments")
 
@@ -292,13 +303,47 @@ def shuffle_and_refragment(
     print(f"Max study idx: {max_study_idx}")
 
 
+def generate_feature_presence_matrix(input_dir, gene_list, output_dir):
+    """
+    Generate a feature presence matrix for each study (study_idx/z_counter) and gene in gene_list.
+    The matrix is shape (num_studies, num_genes), with 1 if the gene is present in the study, 0 otherwise.
+    Saves the matrix as 'feature_presence_matrix.npy' in the output directory.
+    """
+    import numpy as np
+    import zarr
+    import os
+
+    # Find all .zarr files in the input_dir
+    zarr_files = [os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith('.zarr')]
+    zarr_files.sort()
+    num_studies = len(zarr_files)
+    num_genes = len(gene_list)
+    feature_presence = np.zeros((num_studies, num_genes), dtype=np.int8)
+
+    for z_counter, zarr_path in enumerate(zarr_files):
+        z = zarr.open_group(zarr_path, mode='r')
+        zarr_genes = z['var']['gene'][:].tolist()
+        zarr_gene_set = set(zarr_genes)
+        for g_idx, gene in enumerate(gene_list):
+            if gene in zarr_gene_set:
+                feature_presence[z_counter, g_idx] = 1
+    
+    np.save(os.path.join(output_dir, 'feature_presence_matrix.npy'), feature_presence)
+    print(f"Feature presence matrix saved to {os.path.join(output_dir, 'feature_presence_matrix.npy')}")
+
+
 input_dir = "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr"
 fragment_dir = "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr_fragments"
 output_dir = "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr_train_blocks"
 
-#fragment_zarr(input_dir, fragment_dir, output_dir)
+gene_list = pd.read_csv("/home/ubuntu/scREF_test/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",index_col=0)
+gene_list = gene_list.index.tolist()
 
-shuffle_and_refragment(fragment_dir,output_dir)
+
+#fragment_zarr(input_dir, fragment_dir, output_dir, gene_list)
+#shuffle_and_refragment(fragment_dir,output_dir)
+
+generate_feature_presence_matrix(input_dir, gene_list, output_dir)
 
 
 

@@ -1,76 +1,222 @@
 import math
-from typing import List, Optional
-import numpy as np
+from typing import Dict, List, Optional, Any, Iterator
+
 import torch
+import numpy as np
 from torch.utils.data import IterableDataset
+import torch.nn.functional as F
 import anndata as ad
-import random
 import os
+from glob import glob
+import zarr
+
 
 class ZarrDataset(IterableDataset):
-    """Dataset for block-based loading from shuffled AnnData Zarr blocks."""
+    """
+    Custom torch IterableDataset to fetch data from AnnData zarr files in tensor form for PyTorch modules.
+    Supports multi-worker iteration and block-wise data loading.
+    feature_presence_matrix: np.ndarray of shape (num_studies, num_genes) or (num_samples, num_genes),
+    where each row indicates which genes are present (1) or absent (0) for a given study or sample.
+    """
+    
     def __init__(
         self,
         data_root_dir: str,
-        gene_list: Optional[List[str]] = None,
+        feature_presence_matrix: np.ndarray,
+        batch_level_sizes: np.ndarray,
+        block_size: int = 64,
         num_workers: int = 1,
-        batch_size: int = 64,
+        verbose: bool = False,
         predict_mode: bool = False,
-    ):
-        assert os.path.isdir(data_root_dir), f"data_root_dir {data_root_dir} does not exist or is not a directory."
-        block_files = sorted([
-            os.path.join(data_root_dir, f)
-            for f in os.listdir(data_root_dir)
-            if f.endswith('.zarr')
-        ])
-        assert len(block_files) > 0, f"No .zarr files found in {data_root_dir}."
-        self.block_files = block_files
-        self.gene_list = gene_list
-        self.num_workers = num_workers
-        self.batch_size = batch_size
+        pretrained_gene_indices: Optional[np.ndarray] = None,
+        gene_list: Optional[List[str]] = None,
+    ) -> None:
+
+        self.data_root_dir = data_root_dir
+        self.feature_presence_matrix = feature_presence_matrix
         self.predict_mode = predict_mode
-        self._len = None  # Optionally, sum of all block lengths
+        self.num_workers = num_workers
+        self.verbose = verbose
+        self.pretrained_gene_indices = pretrained_gene_indices
+        self.block_size = block_size
+        self.gene_list = gene_list
 
-    def __len__(self):
-        if self._len is not None:
-            return self._len
-        # Optionally, compute total length by summing all block sizes
-        total = 0
-        for f in self.block_files:
-            adata = ad.read_zarr(f)
-            total += adata.n_obs
-        self._len = total
-        return total
+        self.num_modalities = batch_level_sizes[0]
+        self.num_studies = batch_level_sizes[1]
+        self.num_samples = batch_level_sizes[2]
 
-    def __iter__(self):
-        worker_info = torch.utils.data.get_worker_info()
-        if worker_info is not None:
-            worker_id = worker_info.id
-            num_workers = worker_info.num_workers
+        print("num_modalities: ", self.num_modalities)
+        print("num_studies: ", self.num_studies)
+        print("num_samples: ", self.num_samples)
+
+        # Find all .zarr files in the directory
+        self.zarr_files = sorted(glob(os.path.join(self.data_root_dir, '*.zarr')))
+        assert len(self.zarr_files) > 0, f"No .zarr files found in {self.data_root_dir}"
+
+        # Get total number of cells by summing all blocks
+        self.block_cell_counts = []
+
+        for zf in self.zarr_files:
+            # Open Zarr group
+            root = zarr.open_group(zf, mode="r")
+            
+            # Retrieve shape from .attrs (standard AnnData Zarr layout has this)
+            n_obs = root["X"].attrs["shape"][0]
+            self.block_cell_counts.append(n_obs)
+        
+        self._len = sum(self.block_cell_counts)
+        self.num_blocks = len(self.zarr_files)
+
+        # For block data
+        self._block_data = None
+        self.block_counter = 0
+        self.cell_counter = 0
+
+    def __len__(self) -> int:
+        return self._len
+    
+    def _calc_start_end(self, worker_id: int) -> tuple:
+        if self.num_blocks < self.num_workers:
+            num_blocks = self.num_workers
+            block_size = math.ceil(self._len / num_blocks)
+            start_block = worker_id
+            end_block = worker_id + 1
         else:
-            worker_id = 0
-            num_workers = 1
-        # Assign blocks to this worker
-        blocks_per_worker = [self.block_files[i] for i in range(len(self.block_files)) if i % num_workers == worker_id]
-        # Optionally shuffle block order per epoch
-        random.shuffle(blocks_per_worker)
-        for block_path in blocks_per_worker:
-            adata = ad.read_zarr(block_path)
-            n_obs = adata.n_obs
-            # Optionally, shuffle rows within block
-            indices = np.arange(n_obs)
-            np.random.shuffle(indices)
-            for i in range(0, n_obs, self.batch_size):
-                batch_idx = indices[i:i+self.batch_size]
-                X = adata.X[batch_idx, :]
-                obs = adata.obs.iloc[batch_idx]
-                # Convert to torch tensor
-                X_tensor = torch.tensor(X.A if hasattr(X, 'A') else X, dtype=torch.float32)
-                # Optionally, add more fields from obs
-                batch = {
-                    'x': X_tensor,
-                    'obs': obs.reset_index(drop=True),
-                }
-                yield batch
+            num_blocks_per_worker = math.floor(self.num_blocks / self.num_workers)
+            start_block = worker_id * num_blocks_per_worker
+            end_block = start_block + num_blocks_per_worker
+            if worker_id + 1 == self.num_workers:
+                end_block = self.num_blocks
+        return (start_block, end_block)
+
+    def __iter__(self) -> Iterator[Dict[str, Any]]:
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info:
+            self.worker_id = worker_info.id
+            self.start_block, self.end_block = self._calc_start_end(self.worker_id)
+        else:
+            self.start_block = 0
+            self.end_block = self.num_blocks
+
+        self.block_counter = 0
+        self.cell_counter = 0
+        self._block_data = None
+        if self.verbose:
+            print("start block, end block, block_size: ", self.start_block, self.end_block, self.block_size)
+        return self
+
+    def _get_block(self, curr_block):
+
+        zarr_path = self.zarr_files[curr_block]
+        adata = ad.read_zarr(zarr_path)
+        obs_df_block = adata.obs.reset_index()
+        X_block = adata.X
+
+        # obs_df_block columns: ['index', 'sample_idx', 'soma_joinid', ..., 'study_idx']
+
+        cell_idx_block = np.arange(obs_df_block.shape[0])
+        soma_joinid_block = obs_df_block["soma_joinid"].to_numpy(dtype=np.int64)
+        modality_idx_block = np.zeros(obs_df_block.shape[0], dtype=np.int64)
+        study_idx_block = obs_df_block["study_idx"].to_numpy()
+        sample_idx_block = obs_df_block["sample_idx"].to_numpy()
+
+        local_l_mean_block = obs_df_block["log_mean"].to_numpy()
+        local_l_var_block = obs_df_block["log_var"].to_numpy()
+
+        return (obs_df_block, cell_idx_block, soma_joinid_block, modality_idx_block, study_idx_block, sample_idx_block, X_block, local_l_mean_block, local_l_var_block)
+
+    def _make_datum(self, X_curr, soma_joinid, cell_idx, feature_presence_mask,  modality_idx_curr, study_idx_curr, sample_idx_curr, local_l_mean, local_l_var):
+        base = {
+            "x": torch.from_numpy(X_curr.astype("int32")),
+            "soma_joinid": torch.tensor(soma_joinid, dtype=torch.int64),
+            "cell_idx": torch.tensor(cell_idx, dtype=torch.int64),
+            "feature_presence_mask": torch.from_numpy(feature_presence_mask),
+        }
+        if self.predict_mode:
+            return base
+
+        # Use torch.nn.functional.one_hot for one-hot encoding, ensure dtype is torch.long
+        one_hot_modality = F.one_hot(torch.tensor(modality_idx_curr, dtype=torch.long), num_classes=self.num_modalities).float()
+        base["modality_vec"] = one_hot_modality
+        
+        one_hot_study = F.one_hot(torch.tensor(study_idx_curr, dtype=torch.long), num_classes=self.num_studies).float()
+        base["study_vec"] = one_hot_study
+        
+        one_hot_sample = F.one_hot(torch.tensor(sample_idx_curr, dtype=torch.long), num_classes=self.num_samples).float()
+        base["sample_vec"] = one_hot_sample
+        
+        if np.isinf(local_l_mean):
+            local_l_mean = 0.0
+        base["local_l_mean"] = torch.tensor(local_l_mean)
+
+        if np.isnan(local_l_var):
+            local_l_var = 1.0
+        base["local_l_var"] = torch.tensor(local_l_var)
+                
+        return base
+
+    def __next__(self) -> Dict[str, Any]:
+        if self.verbose:
+            print("begin next loop...")
+        self.curr_block = self.start_block + self.block_counter 
+        if self.curr_block < self.end_block:
+            if self.cell_counter == 0:
+                self._block_data = self._get_block(self.curr_block)
+            (
+                obs_df_block,
+                cell_idx_block,
+                soma_joinid_block,
+                modality_idx_block,
+                study_idx_block,
+                sample_idx_block,
+                X_block,
+                local_l_mean_block,
+                local_l_var_block
+            ) = self._block_data
+
+            if self.verbose:    
+                print("subsetting, converting, and transposing x...")
+
+            # X_block is (n_cells, n_genes), can be sparse or dense
+            if hasattr(X_block, 'toarray'):
+                X_curr = np.squeeze(np.asarray(X_block[self.cell_counter, :].toarray()))
+            else:
+                X_curr = np.squeeze(np.asarray(X_block[self.cell_counter, :]))
+
+            if self.pretrained_gene_indices is not None:
+                X_curr_full = np.zeros(len(self.gene_list),  dtype=np.int32)
+                X_curr_full[self.pretrained_gene_indices] = X_curr
+                X_curr = np.squeeze(np.transpose(X_curr_full))
+
+            sample_idx_curr = sample_idx_block[self.cell_counter]
+            modality_idx_curr = modality_idx_block[self.cell_counter]
+            study_idx_curr = study_idx_block[self.cell_counter]
+            soma_joinid = soma_joinid_block[self.cell_counter]
+            cell_idx = cell_idx_block[self.cell_counter]
+            local_l_mean = local_l_mean_block[self.cell_counter]
+            local_l_var = local_l_var_block[self.cell_counter]
+
+            # Feature presence mask selection
+            feature_presence_mask = self.feature_presence_matrix[study_idx_curr, :]
+
+            if self.predict_mode:
+                datum = self._make_datum(X_curr, soma_joinid, cell_idx, feature_presence_mask, local_l_mean, local_l_var)
+            else:
+                modality_idx_curr = modality_idx_block[self.cell_counter] if modality_idx_block is not None else None
+                study_idx_curr = study_idx_block[self.cell_counter] if study_idx_block is not None else None
+                datum = self._make_datum(
+                    X_curr, soma_joinid, cell_idx, feature_presence_mask, modality_idx_curr, study_idx_curr, sample_idx_curr, local_l_mean, local_l_var
+                )
+            if (self.cell_counter + 1) == obs_df_block.shape[0]:
+                self.block_counter += 1
+                self.cell_counter = 0
+                self._block_data = None
+            else:
+                self.cell_counter += 1
+            return datum
+        else:
+            raise StopIteration
+            
+
 
 
