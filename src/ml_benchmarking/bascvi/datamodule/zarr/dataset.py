@@ -117,6 +117,7 @@ class ZarrDataset(IterableDataset):
                 local_l_mean_block,
                 local_l_var_block
             ) = self._block_data
+            
             if hasattr(X_block, 'toarray'):
                 X_curr = np.squeeze(np.asarray(X_block[self.cell_counter, :].toarray()))
             else:
@@ -125,6 +126,7 @@ class ZarrDataset(IterableDataset):
                 X_curr_full = np.zeros(len(self.gene_list), dtype=np.int32)
                 X_curr_full[self.pretrained_gene_indices] = X_curr
                 X_curr = np.squeeze(X_curr_full)
+
             sample_idx = sample_idx_block[self.cell_counter]
             modality_idx = modality_idx_block[self.cell_counter]
             study_idx = study_idx_block[self.cell_counter]
@@ -133,6 +135,7 @@ class ZarrDataset(IterableDataset):
             local_l_mean = local_l_mean_block[self.cell_counter]
             local_l_var = local_l_var_block[self.cell_counter]
             feature_presence_mask = self.feature_presence_matrix[study_idx, :]
+
             datum = self._make_datum(
                 X_curr, soma_joinid, cell_idx, feature_presence_mask, modality_idx, study_idx, sample_idx, local_l_mean, local_l_var
             )
