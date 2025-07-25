@@ -86,6 +86,8 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, target_shuffle_size=50000
 
     if not os.path.exists(fragment_dir):
         os.makedirs(fragment_dir)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
     
     sample_counter = 0
     z_counter = 0
@@ -251,12 +253,24 @@ def shuffle_and_refragment(
     print(f"Found {len(block_map)} blocks to process.")
 
     total_written = 0
+
+    max_sample_idx = 0
+    max_study_idx = 0
+
     for block_num in sorted(block_map.keys()):
         print(f"\n🔄 Processing block {block_num} with {len(block_map[block_num])} fragments...")
         
         # Load and combine fragments
         adatas = [ad.read_zarr(path) for path in tqdm(sorted(block_map[block_num]))]
         combined = ad.concat(adatas, axis=0, merge="same", index_unique=None)
+
+        max_sample_idx_block = max(max_sample_idx, combined.obs['sample_idx'].max())
+        if max_sample_idx_block > max_sample_idx:
+            max_sample_idx = max_sample_idx_block
+        
+        max_study_idx_block = max(max_study_idx, combined.obs['study_idx'].max())
+        if max_study_idx_block > max_study_idx:
+            max_study_idx = max_study_idx_block
 
         # Shuffle rows
         n = combined.n_obs
@@ -272,15 +286,17 @@ def shuffle_and_refragment(
             print(f"  ✅ Wrote {frag.n_obs} cells → {frag_path}")
             total_written += 1
 
-    print(f"\n🎉 Finished. Wrote {total_written} shuffled fragments to: {output_dir}")
 
+    print(f"\n🎉 Finished. Wrote {total_written} shuffled fragments to: {output_dir}")
+    print(f"Max sample idx: {max_sample_idx}")
+    print(f"Max study idx: {max_study_idx}")
 
 
 input_dir = "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr"
 fragment_dir = "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr_fragments"
 output_dir = "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr_train_blocks"
 
-fragment_zarr(input_dir, fragment_dir, output_dir)
+#fragment_zarr(input_dir, fragment_dir, output_dir)
 
 shuffle_and_refragment(fragment_dir,output_dir)
 

@@ -24,7 +24,6 @@ def log_mean(X):
     local_mean = np.mean(log_counts).astype(np.float32)
     return local_mean
 
-
 def log_var(X):
     """Compute the variance of the log total counts per cell."""
     log_counts = np.log(X.sum(axis=1))
