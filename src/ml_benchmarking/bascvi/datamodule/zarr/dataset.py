@@ -12,7 +12,7 @@ import zarr
 class ZarrDataset(IterableDataset):
     """
     IterableDataset for loading AnnData zarr files for PyTorch models.
-    Each datum contains: x, soma_joinid, cell_idx, feature_presence_mask, modality_vec, study_vec, sample_vec, local_l_mean, local_l_var.
+    Each datum contains: x, cell_idx, feature_presence_mask, modality_vec, study_vec, sample_vec, local_l_mean, local_l_var.
     """
     def __init__(
         self,
@@ -25,6 +25,8 @@ class ZarrDataset(IterableDataset):
         predict_mode: bool = False,
         pretrained_gene_indices: Optional[np.ndarray] = None,
         gene_list: Optional[List[str]] = None,
+        validation_split: float = 0.1,
+        is_validation: bool = False,
     ) -> None:
         self.data_root_dir = data_root_dir
         self.feature_presence_matrix = feature_presence_matrix
@@ -35,6 +37,8 @@ class ZarrDataset(IterableDataset):
         self.block_size = block_size
         self.gene_list = gene_list
         self.num_modalities, self.num_studies, self.num_samples = batch_level_sizes
+        self.validation_split = validation_split
+        self.is_validation = is_validation
 
         self.zarr_files = sorted(glob(os.path.join(self.data_root_dir, '*.zarr')))
         assert self.zarr_files, f"No .zarr files found in {self.data_root_dir}"
@@ -46,19 +50,54 @@ class ZarrDataset(IterableDataset):
         self.cell_counter = 0
 
     def __len__(self) -> int:
-        return self._len
+        # Calculate length based on the split
+        if self.is_validation:
+            # Use last validation_split portion of blocks
+            split_point = int(self.num_blocks * (1 - self.validation_split))
+            validation_blocks = self.block_cell_counts[split_point:]
+            return sum(validation_blocks)
+        else:
+            # Use first (1 - validation_split) portion of blocks
+            split_point = int(self.num_blocks * (1 - self.validation_split))
+            training_blocks = self.block_cell_counts[:split_point]
+            return sum(training_blocks)
 
     def _calc_start_end(self, worker_id: int) -> tuple:
-        if self.num_blocks < self.num_workers:
-            num_blocks = self.num_workers
-            start_block = worker_id
-            end_block = worker_id + 1
+        # First, determine the overall split
+        if self.is_validation:
+            # Use last validation_split portion of blocks
+            split_point = int(self.num_blocks * (1 - self.validation_split))
+            overall_start = split_point
+            overall_end = self.num_blocks
+            if worker_id == 0:  # Only print once per dataset
+                print(f"Validation split: blocks {overall_start} to {overall_end} (total blocks: {self.num_blocks})")
         else:
-            num_blocks_per_worker = math.floor(self.num_blocks / self.num_workers)
-            start_block = worker_id * num_blocks_per_worker
-            end_block = start_block + num_blocks_per_worker
+            # Use first (1 - validation_split) portion of blocks
+            split_point = int(self.num_blocks * (1 - self.validation_split))
+            overall_start = 0
+            overall_end = split_point
+            if worker_id == 0:  # Only print once per dataset
+                print(f"Training split: blocks {overall_start} to {overall_end} (total blocks: {self.num_blocks})")
+        
+        # Now assign workers within the appropriate range
+        available_blocks = overall_end - overall_start
+        if available_blocks < self.num_workers:
+            # More workers than blocks, assign one block per worker
+            if worker_id < available_blocks:
+                start_block = overall_start + worker_id
+                end_block = start_block + 1
+            else:
+                # This worker gets no blocks
+                start_block = overall_end
+                end_block = overall_end
+        else:
+            # Distribute blocks among workers
+            blocks_per_worker = math.floor(available_blocks / self.num_workers)
+            start_block = overall_start + (worker_id * blocks_per_worker)
+            end_block = start_block + blocks_per_worker
             if worker_id + 1 == self.num_workers:
-                end_block = self.num_blocks
+                end_block = overall_end
+        
         return (start_block, end_block)
 
     def __iter__(self) -> Iterator[Dict[str, Any]]:
@@ -80,18 +119,16 @@ class ZarrDataset(IterableDataset):
         obs_df_block = adata.obs.reset_index()
         X_block = adata.X
         cell_idx_block = np.arange(obs_df_block.shape[0])
-        soma_joinid_block = obs_df_block["soma_joinid"].to_numpy(dtype=np.int64)
         modality_idx_block = np.zeros(obs_df_block.shape[0], dtype=np.int64)
         study_idx_block = obs_df_block["study_idx"].to_numpy()
         sample_idx_block = obs_df_block["sample_idx"].to_numpy()
         local_l_mean_block = obs_df_block["log_mean"].to_numpy()
         local_l_var_block = obs_df_block["log_var"].to_numpy()
-        return (cell_idx_block, soma_joinid_block, modality_idx_block, study_idx_block, sample_idx_block, X_block, local_l_mean_block, local_l_var_block)
+        return (cell_idx_block, modality_idx_block, study_idx_block, sample_idx_block, X_block, local_l_mean_block, local_l_var_block)
 
-    def _make_datum(self, X_curr, soma_joinid, cell_idx, feature_presence_mask, modality_idx, study_idx, sample_idx, local_l_mean, local_l_var):
+    def _make_datum(self, X_curr, cell_idx, feature_presence_mask, modality_idx, study_idx, sample_idx, local_l_mean, local_l_var):
         base = {
             "x": torch.from_numpy(X_curr.astype("int32")),
-            "soma_joinid": torch.tensor(soma_joinid, dtype=torch.int64),
             "cell_idx": torch.tensor(cell_idx, dtype=torch.int64),
             "feature_presence_mask": torch.from_numpy(feature_presence_mask),
             "modality_vec": F.one_hot(torch.tensor(modality_idx, dtype=torch.long), num_classes=self.num_modalities).float(),
@@ -109,7 +146,6 @@ class ZarrDataset(IterableDataset):
                 self._block_data = self._get_block(self.curr_block)
             (
                 cell_idx_block,
-                soma_joinid_block,
                 modality_idx_block,
                 study_idx_block,
                 sample_idx_block,
@@ -130,14 +166,13 @@ class ZarrDataset(IterableDataset):
             sample_idx = sample_idx_block[self.cell_counter]
             modality_idx = modality_idx_block[self.cell_counter]
             study_idx = study_idx_block[self.cell_counter]
-            soma_joinid = soma_joinid_block[self.cell_counter]
             cell_idx = cell_idx_block[self.cell_counter]
             local_l_mean = local_l_mean_block[self.cell_counter]
             local_l_var = local_l_var_block[self.cell_counter]
             feature_presence_mask = self.feature_presence_matrix[study_idx, :]
 
             datum = self._make_datum(
-                X_curr, soma_joinid, cell_idx, feature_presence_mask, modality_idx, study_idx, sample_idx, local_l_mean, local_l_var
+                X_curr, cell_idx, feature_presence_mask, modality_idx, study_idx, sample_idx, local_l_mean, local_l_var
             )
             if (self.cell_counter + 1) == len(cell_idx_block):
                 self.block_counter += 1

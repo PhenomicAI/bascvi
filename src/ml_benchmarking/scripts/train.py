@@ -60,6 +60,14 @@ def get_trainer_and_model(config, datamodule, wandb_logger):
     if "pl_trainer" not in config:
         config["pl_trainer"] = {}
     config["pl_trainer"]["callbacks"] = model.callbacks
+    
+    # Extract max_epochs from training_args if present
+    if "training_args" in config["emb_trainer"] and "max_epochs" in config["emb_trainer"]["training_args"]:
+        config["pl_trainer"]["max_epochs"] = config["emb_trainer"]["training_args"]["max_epochs"]
+    
+    # Set validation frequency to run validation every epoch
+    config["pl_trainer"]["val_check_interval"] = 1.0
+    
     model.datamodule = datamodule
     trainer = Trainer(
         **config["pl_trainer"],

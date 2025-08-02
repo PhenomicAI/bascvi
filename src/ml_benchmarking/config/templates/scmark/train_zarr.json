@@ -1,0 +1,64 @@
+{
+    "mode": "train",
+
+    "wandb_project_name": "scmark_train",
+    "run_save_dir": "../runs/scmark_train/",
+    
+    "datamodule": {
+        "class_name": "ZarrDataModule",
+        "options": {
+            "data_root_dir": "/home/ubuntu/scREF_test/data/scMARK/zarr_train_blocks/",
+            "dataloader_args": {
+                "batch_size": 64,
+                "num_workers": 4,
+                "pin_memory": true
+            }
+        }
+    },
+    "emb_trainer": {
+        "module_name": "bascvi",
+        "class_name": "BAScVI",
+
+        "model_args": {
+            "n_hidden": 512,
+            "n_latent": 10,
+            "n_layers": 4,
+            "scaling_factor": 10000.0,
+            "use_library": true,
+            "use_batch_encoder": true
+        },
+
+        "training_args": {
+            "kl_loss_weight": 1.0,
+            "disc_loss_weight": 1.0,
+
+            "n_steps_kl_warmup": 10,
+            "n_steps_discriminator_warmup": 10,
+            "sigmoidal_disc_warmup": true, 
+
+            "save_validation_umaps": true,
+            "run_validation_metrics": false,
+
+            "vae_optimizer": {
+                "lr": 1e-4,
+                "weight_decay": 1e-5
+            },
+            "discriminator_optimizer": {
+                "lr": 1e-2,
+                "weight_decay": 1e-5
+            },
+        
+            "train_adversarial": true,
+            "train_library": true,
+            "reduce_lr_on_plateau": true,
+            "max_epochs": 5
+        },
+
+        "callbacks_args": {
+            "model_checkpoint": {
+                "monitor": "val_loss/loss",
+                "mode": "min"
+            }
+        }
+    }
+}

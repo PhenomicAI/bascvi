@@ -8,8 +8,6 @@ import pytorch_lightning as pl
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.nn.utils as utils
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
-from ml_benchmarking.bascvi.utils.utils import umap_calc_and_save_html, calc_kni_score, calc_rbni_score
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -42,7 +40,6 @@ class BAScVITrainer(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore="datamodule")
         self.root_dir = root_dir
-        self.soma_experiment_uri = soma_experiment_uri
         self.model_args = model_args
         if n_input is not None:
             self.model_args["n_input"] = n_input
@@ -74,6 +71,12 @@ class BAScVITrainer(pl.LightningModule):
         self.validation_step_outputs = []
         if os.path.isdir(os.path.join(self.root_dir, "validation_umaps")):
             shutil.rmtree(os.path.join(self.root_dir, "validation_umaps"))
+
+        self.soma_experiment_uri = soma_experiment_uri
+        if soma_experiment_uri:
+            from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
+            self.open_soma_experiment = open_soma_experiment
+
 
     @classmethod
     def load_from_checkpoint(cls, checkpoint_path, map_location=None, **kwargs):
@@ -170,20 +173,20 @@ class BAScVITrainer(pl.LightningModule):
         self.log("trainer/global_step", self.global_step)
         return g_losses
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch):
         encoder_outputs, _, g_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
         g_losses = {f"val_loss/{k}": v for k, v in g_losses.items()}
         self.log_dict(g_losses, on_step=False, on_epoch=True)
         qz_m = encoder_outputs["qz_m"]
         z = qz_m.double()
-        emb_output = torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1)
+        emb_output = torch.cat((z, torch.unsqueeze(batch["cell_idx"], 1)), 1)
         self.validation_step_outputs.append(emb_output)
         return g_losses
 
     def on_validation_epoch_end(self):
         backend = getattr(self.datamodule, "backend", "soma")
         if backend == "soma" and self.soma_experiment_uri:
-            with open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
+            with self.open_soma_experiment(self.soma_experiment_uri) as soma_experiment:
                 pass  # (keep your current logic here)
         elif backend == "zarr":
             logger.info("Skipping SOMA validation: running with Zarr backend.")
@@ -196,14 +199,14 @@ class BAScVITrainer(pl.LightningModule):
     def predict_step(self, batch, batch_idx, give_mean: bool = True, return_counts: bool = False):
         inference_outputs, generative_outputs = self(batch, encode=True, predict_mode=True)
         if return_counts:
-            if "soma_joinid" in batch:
-                return torch.cat((generative_outputs["counts_pred"], torch.unsqueeze(batch["soma_joinid"], 1)), 1) 
+            if "cell_idx" in batch:
+                return torch.cat((generative_outputs["counts_pred"], torch.unsqueeze(batch["cell_idx"], 1)), 1) 
         else:
             qz_m = inference_outputs["qz_m"]
             z = qz_m if give_mean else inference_outputs["z"]
             z = z.double()
-            if "soma_joinid" in batch:
-                return torch.cat((z, torch.unsqueeze(batch["soma_joinid"], 1)), 1)
+            if "cell_idx" in batch:
+                return torch.cat((z, torch.unsqueeze(batch["cell_idx"], 1)), 1)
             elif "locate" in batch:
                 return torch.cat((z, batch["locate"]), 1)
             else:

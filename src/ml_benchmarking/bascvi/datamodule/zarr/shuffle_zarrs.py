@@ -120,35 +120,62 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
 
         ad_obs_list = []
 
-        for sample_idx in tqdm(obs['sample_idx'].unique(), desc=f"Samples in {study_name}"):
-
-            mask = obs['sample_idx'] == sample_idx
-
-            # Convert mask to integer indices
-            row_indices = np.where(mask)[0]
+        # Determine how to iterate through samples
+        if 'sample_name' in obs.columns:
+            # Use sample_name for unique identification within this file
+            unique_samples = obs['sample_name'].unique()
+            sample_iter = tqdm(unique_samples, desc=f"Samples in {study_name}")
             
-            sample_X = load_sparse_rows_from_zarr(z['X'], row_indices)   
-            sample_obs = obs[mask].copy()
+            for sample_name in sample_iter:
+                mask = obs['sample_name'] == sample_name
+                
+                # Convert mask to integer indices
+                row_indices = np.where(mask)[0]
+                
+                sample_X = load_sparse_rows_from_zarr(z['X'], row_indices)   
+                sample_obs = obs[mask].copy()
 
-            sample_obs['log_mean'] = log_mean(sample_X)
-            sample_obs['log_var'] = log_var(sample_X)
+                sample_obs['log_mean'] = log_mean(sample_X)
+                sample_obs['log_var'] = log_var(sample_X)
 
-            sample_obs['study_name'] = study_name
-            sample_obs['study_idx'] = z_counter
+                sample_obs['study_name'] = study_name
+                sample_obs['study_idx'] = z_counter
 
-            sample_obs['sample_idx'] = sample_counter
+                # Assign unique sample_idx for this sample (same sample_name in different files gets different IDs)
+                sample_obs['sample_idx'] = sample_counter
+                sample_counter += 1
+
+                ad_obs_list.append(sample_obs)
+                # Clean up per-sample objects
+                del sample_X, sample_obs
+                gc.collect()
+        else:
+            # Fallback: treat entire file as one sample if no sample_name or sample_idx column
+            print(f"No sample_name column found in {study_name}, treating entire file as one sample")
+            
+            # Add required columns to the original obs dataframe
+            # Load all data to calculate log mean and variance
+            all_X = load_sparse_rows_from_zarr(z['X'], np.arange(len(obs)))
+            obs['log_mean'] = log_mean(all_X)
+            obs['log_var'] = log_var(all_X)
+            obs['study_name'] = study_name
+            obs['study_idx'] = z_counter
+            obs['sample_idx'] = sample_counter
             sample_counter += 1
 
-            ad_obs_list.append(sample_obs)
+            # Use the modified obs dataframe directly
+            obs_df = obs.copy()
             # Clean up per-sample objects
-            del sample_X, sample_obs
             gc.collect()
 
         z_counter += 1
 
-        obs_df = pd.concat(ad_obs_list)
-        # Clean up ad_obs_list
-        del ad_obs_list
+        # Only concatenate if we processed multiple samples
+        if 'sample_name' in obs.columns:
+            obs_df = pd.concat(ad_obs_list)
+            # Clean up ad_obs_list
+            del ad_obs_list
+        # obs_df is already set in the fallback case
         gc.collect()
 
         # Clean up obs 
@@ -199,7 +226,7 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
 
             # Apply mask to matrix and obs
             X_final_block_filtered = X_final_block[cell_mask, :]
-            obs_filtered = obs_df[start:stop].iloc[cell_mask.values]
+            obs_filtered = obs_df[start:stop].iloc[cell_mask]
 
             # Write AnnData object
             ad_write = ad.AnnData(X=X_final_block_filtered, obs=obs_filtered, var=var_df)
@@ -332,17 +359,16 @@ def generate_feature_presence_matrix(input_dir, gene_list, output_dir):
     print(f"Feature presence matrix saved to {os.path.join(output_dir, 'feature_presence_matrix.npy')}")
 
 
-input_dir = "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr"
-fragment_dir = "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr_fragments"
-output_dir = "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr_train_blocks"
+input_dir = "/home/ubuntu/scREF_test/data/scMARK/scmark_zarr"
+fragment_dir = "/home/ubuntu/scREF_test/data/scMARK/zarr_fragments"
+output_dir = "/home/ubuntu/scREF_test/data/scMARK/zarr_train_blocks"
 
 gene_list = pd.read_csv("/home/ubuntu/scREF_test/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",index_col=0)
 gene_list = gene_list.index.tolist()
 
 
-#fragment_zarr(input_dir, fragment_dir, output_dir, gene_list)
-#shuffle_and_refragment(fragment_dir,output_dir)
-
+fragment_zarr(input_dir, fragment_dir, output_dir, gene_list)
+shuffle_and_refragment(fragment_dir,output_dir)
 generate_feature_presence_matrix(input_dir, gene_list, output_dir)
 
 

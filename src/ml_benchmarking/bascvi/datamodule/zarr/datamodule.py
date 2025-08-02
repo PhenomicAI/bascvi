@@ -15,6 +15,7 @@ class ZarrDataModule(pl.LightningDataModule):
         self.data_root_dir = data_root_dir
         self.dataloader_args = dataloader_args
         self.random_seed = random_seed
+        self.backend = "zarr"  # Set backend to zarr
         assert os.path.exists(data_root_dir), f"Data root directory {data_root_dir} does not exist"
 
         # Load feature presence matrix
@@ -45,10 +46,14 @@ class ZarrDataModule(pl.LightningDataModule):
             batch_level_sizes=self.batch_level_sizes,
             num_workers=self.dataloader_args.get('num_workers', 1),
             block_size=self.dataloader_args.get('batch_size', 64),
+            validation_split=0.1,  # 10% for validation
         )
         if stage == "fit":
             print("Stage = Fitting")
-            self.train_dataset = ZarrDataset(**dataset_args)
+            self.train_dataset = ZarrDataset(is_validation=False, **dataset_args)
+            self.val_dataset = ZarrDataset(is_validation=True, **dataset_args)
+            print(f"Train dataset length: {len(self.train_dataset)}")
+            print(f"Val dataset length: {len(self.val_dataset)}")
         elif stage == "predict":
             print("Stage = Predicting on Zarr blocks")
             self.pred_dataset = ZarrDataset(predict_mode=True, **dataset_args)
@@ -57,18 +62,8 @@ class ZarrDataModule(pl.LightningDataModule):
         return DataLoader(self.train_dataset, persistent_workers=True, **self.dataloader_args)
 
     def val_dataloader(self):
-        val_dataset = ZarrDataset(**{
-            **dict(
-                data_root_dir=self.data_root_dir,
-                gene_list=self.gene_list,
-                feature_presence_matrix=self.feature_presence_matrix,
-                batch_level_sizes=self.batch_level_sizes,
-                num_workers=self.dataloader_args.get('num_workers', 1),
-                block_size=self.dataloader_args.get('batch_size', 64),
-            )
-        })
         loader_args = copy.copy(self.dataloader_args)
-        return DataLoader(val_dataset, persistent_workers=True, **loader_args)
+        return DataLoader(self.val_dataset, persistent_workers=True, **loader_args)
 
     def predict_dataloader(self):
         loader_args = copy.copy(self.dataloader_args)
