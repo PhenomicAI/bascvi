@@ -5,7 +5,6 @@ from tqdm import tqdm
 from typing import Dict, Optional
 import pytorch_lightning as pl
 
-import tiledb
 import numpy as np
 import pandas as pd
 import tiledbsoma as soma

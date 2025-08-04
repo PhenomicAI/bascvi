@@ -28,6 +28,7 @@ class ZarrDataset(IterableDataset):
         validation_split: float = 0.1,
         is_validation: bool = False,
     ) -> None:
+
         self.data_root_dir = data_root_dir
         self.feature_presence_matrix = feature_presence_matrix
         self.predict_mode = predict_mode
@@ -118,18 +119,20 @@ class ZarrDataset(IterableDataset):
         adata = ad.read_zarr(zarr_path)
         obs_df_block = adata.obs.reset_index()
         X_block = adata.X
-        cell_idx_block = np.arange(obs_df_block.shape[0])
+        # Ensure cell_idx is properly converted to int64 and handle any potential overflow
+        cell_idx_block = obs_df_block["cell_idx"].astype(np.int64).to_numpy()
         modality_idx_block = np.zeros(obs_df_block.shape[0], dtype=np.int64)
         study_idx_block = obs_df_block["study_idx"].to_numpy()
         sample_idx_block = obs_df_block["sample_idx"].to_numpy()
         local_l_mean_block = obs_df_block["log_mean"].to_numpy()
         local_l_var_block = obs_df_block["log_var"].to_numpy()
+
         return (cell_idx_block, modality_idx_block, study_idx_block, sample_idx_block, X_block, local_l_mean_block, local_l_var_block)
 
     def _make_datum(self, X_curr, cell_idx, feature_presence_mask, modality_idx, study_idx, sample_idx, local_l_mean, local_l_var):
         base = {
             "x": torch.from_numpy(X_curr.astype("int32")),
-            "cell_idx": torch.tensor(cell_idx, dtype=torch.int64),
+            "cell_idx": torch.tensor(int(cell_idx), dtype=torch.int64),
             "feature_presence_mask": torch.from_numpy(feature_presence_mask),
             "modality_vec": F.one_hot(torch.tensor(modality_idx, dtype=torch.long), num_classes=self.num_modalities).float(),
             "study_vec": F.one_hot(torch.tensor(study_idx, dtype=torch.long), num_classes=self.num_studies).float(),

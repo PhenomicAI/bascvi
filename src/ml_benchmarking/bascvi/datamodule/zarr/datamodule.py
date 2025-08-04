@@ -1,5 +1,6 @@
 import os
 import copy
+import warnings
 from pathlib import Path
 from typing import Dict, Optional, List
 import pickle
@@ -8,6 +9,10 @@ import zarr
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 from ml_benchmarking.bascvi.datamodule.zarr.dataset import ZarrDataset
+
+# Suppress the IterableDataset warning - our implementation correctly handles worker distribution
+# by properly distributing blocks among workers in _calc_start_end method
+warnings.filterwarnings("ignore", message="Your `IterableDataset` has `__len__` defined")
 
 class ZarrDataModule(pl.LightningDataModule):
     def __init__(self, data_root_dir: str = "", dataloader_args: Dict = {}, random_seed: int = 42):

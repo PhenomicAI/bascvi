@@ -6,7 +6,17 @@ This repository provides everything you need to benchmark the performance of you
 
 This package is built with [PyTorch](https://pytorch.org/) and leverages [PyTorch Lightning](https://www.pytorchlightning.ai/) to simplify the training and evaluation process. Familiarity with these libraries is recommended to fully understand and extend the benchmarking capabilities offered here.
 
-The datasets used in our benchmarks are available for download from this S3 bucket: s3://pai-scrnaseq/sctx_gui/corpora/scref_ml/
+The datasets used in our benchmarks are available for download from hugging face: 
+
+scMARK: https://zenodo.org/records/7795653
+
+scREF: https://huggingface.co/datasets/Phenomic-AI/scref_ICLR_2025
+
+Zarr training is recommended - h5ad_to_zarr.py enables conversion of the scMARK dataset into a directory of .zarr files.
+
+shuffle_zarrs.py performs memory efficeint randomization over a directory of zarrs and outputs a new directory zarr_training_blocks that the model can use for quick training
+
+We recommend testing / debuging on scMARK and then moving upto scREF when this is training well 
 
 ## Installation
 
@@ -20,9 +30,10 @@ pip install -r requirements.txt
 
 ## Training BAscVI
 
+
 Please refer to the template config file under `ml_benchmarking/config/templates/train.json` which can be run from the working directory `bascvi/src/` using
 
-`python -m ml_benchmarking.scripts.run_config -c ml_benchmarking/config/templates/predict_h5ad.json`
+`python ml_benchmarking/scripts/run_config.py -c ml_benchmarking/config/templates/scMARK/train_zarr.json`
 
 When prompted for WandDB enter (3) to proceed - unless you want to view logger results then create an account
 
@@ -30,7 +41,7 @@ The trainer is configured to run on a single GPU.
 
 ## Predicting with BAscVI
 
-Please refer to the template config file under `ml_benchmarking/config/templates/predict.json` which can be run using
+Please refer to the template config file under `ml_benchmarking/config/templates/predict_zarr.json` which can be run using
 
 `python -m ml_benchmarking.scripts.run_config -c ml_benchmarking/config/templates/predict.json`
 

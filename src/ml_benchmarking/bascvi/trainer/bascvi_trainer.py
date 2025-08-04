@@ -148,6 +148,7 @@ class BAScVITrainer(pl.LightningModule):
         if batch["x"].shape[0] < 3:
             return None
         if self.training_args.get("train_adversarial"):
+
             g_opt, d_opt = self.optimizers()
             g_opt.zero_grad()
             _, _, g_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
@@ -159,6 +160,7 @@ class BAScVITrainer(pl.LightningModule):
             self.manual_backward(d_losses['loss'])
             utils.clip_grad_norm_(self.vae.parameters(), 1.0)
             d_opt.step()
+
         else:
             g_opt = self.optimizers()
             g_opt.zero_grad()
@@ -166,21 +168,45 @@ class BAScVITrainer(pl.LightningModule):
             self.manual_backward(g_losses['loss'])
             utils.clip_grad_norm_(self.vae.parameters(), 1.0)
             g_opt.step()
-        g_losses = {f"train_loss/{k}": v for k, v in g_losses.items()}
-        self.log_dict(g_losses)
+        
+        # Filter out individual discriminator losses to avoid serialization
+        filtered_g_losses = {}
+        for k, v in g_losses.items():
+            # Skip lindividual discriminator losses
+            if (k.startswith("disc_loss_z_") or k.startswith("disc_loss_x_")):
+                continue
+            elif k == "disc_loss":  # Keep the aggregated discriminator loss
+                filtered_g_losses[f"train_loss/{k}"] = v
+            else:
+                filtered_g_losses[f"train_loss/{k}"] = v
+        
+        self.log_dict(filtered_g_losses)
         self.log("trainer/disc_warmup_weight", self.disc_warmup_weight)
         self.log("trainer/kl_warmup_weight", self.kl_warmup_weight)
         self.log("trainer/global_step", self.global_step)
+
         return g_losses
 
     def validation_step(self, batch):
         encoder_outputs, _, g_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
-        g_losses = {f"val_loss/{k}": v for k, v in g_losses.items()}
-        self.log_dict(g_losses, on_step=False, on_epoch=True)
+        
+        # Filter out large objects and individual discriminator losses to avoid serialization
+        filtered_g_losses = {}
+        for k, v in g_losses.items():
+            # Skip large objects and individual discriminator losses
+            if (k.startswith("disc_loss_z_") or k.startswith("disc_loss_x_")):
+                continue
+            elif k == "disc_loss":  # Keep the aggregated discriminator loss
+                filtered_g_losses[f"val_loss/{k}"] = v
+            else:
+                filtered_g_losses[f"val_loss/{k}"] = v
+        
+        self.log_dict(filtered_g_losses, on_step=False, on_epoch=True)
         qz_m = encoder_outputs["qz_m"]
         z = qz_m.double()
         emb_output = torch.cat((z, torch.unsqueeze(batch["cell_idx"], 1)), 1)
         self.validation_step_outputs.append(emb_output)
+
         return g_losses
 
     def on_validation_epoch_end(self):

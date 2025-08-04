@@ -4,7 +4,12 @@ import torch
 from argparse import ArgumentParser
 
 import sys
-sys.path.append('/home/ubuntu/scREF_test/bascvi/src/')
+import os
+
+# Add the src directory to Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_dir = os.path.join(current_dir, '..', '..')
+sys.path.insert(0, src_dir)
 
 from ml_benchmarking.scripts.train import train
 from ml_benchmarking.scripts.predict import predict
@@ -14,7 +19,6 @@ import os
 os.environ["WANDB_MODE"] = "disabled"
 
 def run_config(config: dict):
-
 
     # for tiledb
     torch.multiprocessing.set_start_method("fork", force=True)

@@ -6,6 +6,7 @@ import scipy.sparse as sp
 import zarr
 from tqdm import tqdm
 import gc
+import hashlib
 
 import os
 import re
@@ -26,6 +27,81 @@ def log_var(X):
     log_counts = np.log(X.sum(axis=1))
     local_var = np.var(log_counts).astype(np.float32)
     return local_var
+
+def generate_cell_idx_with_counter(study_name, barcode, study_idx, sample_idx, cell_counter):
+    """
+    Generate a globally unique cell identifier using a monotonically increasing counter.
+    
+    This approach combines a hash of the cell identifiers with a monotonically increasing
+    counter to ensure global uniqueness without collision risk. The hash provides
+    deterministic behavior while the counter ensures uniqueness.
+    
+    Parameters
+    ----------
+    study_name : str
+        Name of the study
+    barcode : str
+        Cell barcode
+    study_idx : int
+        Study index
+    sample_idx : int
+        Sample index
+    cell_counter : int
+        Monotonically increasing counter for this cell
+    
+    Returns
+    -------
+    int
+        Globally unique cell identifier (fits within int64 range)
+    """
+    # Create a unique string combining all identifiers
+    unique_string = f"{study_name}_{barcode}_{study_idx}_{sample_idx}"
+    # Generate hash and convert to integer
+    hash_object = hashlib.md5(unique_string.encode())
+    hash_hex = hash_object.hexdigest()
+    # Use first 8 characters of hash (32-bit) and combine with counter
+    hash_part = int(hash_hex[:8], 16)
+    # Combine hash with counter to create unique identifier
+    # Use modulo to ensure result fits in int64 range
+    cell_idx = ((hash_part * 1000000) + cell_counter) % (2**63)
+    return cell_idx
+
+def generate_cell_idx(study_name, barcode, study_idx, sample_idx):
+    """
+    Generate a globally unique cell identifier based on study, barcode, and indices.
+    
+    This function creates a deterministic, globally unique identifier for each cell
+    by combining the study name, cell barcode, study index, and sample index into
+    a hash. This ensures that the same cell will always get the same cell_idx,
+    even across different processing runs or data shuffling operations.
+    
+    The hash is truncated to fit within int64 range to avoid overflow issues.
+    
+    Parameters
+    ----------
+    study_name : str
+        Name of the study
+    barcode : str
+        Cell barcode
+    study_idx : int
+        Study index
+    sample_idx : int
+        Sample index
+    
+    Returns
+    -------
+    int
+        Globally unique cell identifier (fits within int64 range)
+    """
+    # Create a unique string combining all identifiers
+    unique_string = f"{study_name}_{barcode}_{study_idx}_{sample_idx}"
+    # Generate hash and convert to integer
+    hash_object = hashlib.md5(unique_string.encode())
+    hash_hex = hash_object.hexdigest()
+    # Convert first 12 characters of hash to integer (48-bit) to fit within int64 range
+    # This gives us 2^48 possible values, which is more than enough for cell identification
+    cell_idx = int(hash_hex[:12], 16)
+    return cell_idx
 
 def load_obs_column(zarr_obs_group, key):
     group = zarr_obs_group[key]
@@ -107,6 +183,7 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
     
     sample_counter = 0
     z_counter = 0
+    global_cell_counter = 0  # Global counter for unique cell identification
 
     for zarr_path in input_zarr_files:
 
@@ -166,6 +243,22 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
 
                 # Assign unique sample_idx for this sample (same sample_name in different files gets different IDs)
                 sample_obs['sample_idx'] = sample_counter
+                
+                # Generate globally unique cell_idx for each cell using hash + counter approach
+                # This ensures each cell has a unique, deterministic identifier that can be used
+                # to map model outputs back to the original input cells
+                sample_obs['cell_idx'] = sample_obs.apply(
+                    lambda row: generate_cell_idx_with_counter(
+                        study_name, 
+                        str(row['barcode']), 
+                        z_counter, 
+                        sample_counter,
+                        global_cell_counter + row.name  # Use row index for counter
+                    ), axis=1
+                )
+                
+                # Update global cell counter
+                global_cell_counter += len(sample_obs)
                 sample_counter += 1
 
                 ad_obs_list.append(sample_obs)
@@ -184,6 +277,22 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
             obs['study_name'] = study_name
             obs['study_idx'] = z_counter
             obs['sample_idx'] = sample_counter
+            
+            # Generate globally unique cell_idx for each cell using hash + counter approach
+            # This ensures each cell has a unique, deterministic identifier that can be used
+            # to map model outputs back to the original input cells
+            obs['cell_idx'] = obs.apply(
+                lambda row: generate_cell_idx_with_counter(
+                    study_name, 
+                    str(row['barcode']), 
+                    z_counter, 
+                    sample_counter,
+                    global_cell_counter + row.name  # Use row index for counter
+                ), axis=1
+            )
+            
+            # Update global cell counter
+            global_cell_counter += len(obs)
             sample_counter += 1
 
             # Use the modified obs dataframe directly
