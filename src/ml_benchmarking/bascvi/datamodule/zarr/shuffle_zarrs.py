@@ -27,6 +27,25 @@ def log_var(X):
     local_var = np.var(log_counts).astype(np.float32)
     return local_var
 
+def load_obs_column(zarr_obs_group, key):
+    group = zarr_obs_group[key]
+    attrs = dict(group.attrs)
+
+    if attrs.get("encoding-type") == "categorical":
+        # Load codes and categories
+        codes = group['codes'][:]
+        categories = group['categories'][:]
+        
+        # Decode bytes to strings if necessary
+        if np.issubdtype(categories.dtype, np.bytes_):
+            categories = np.char.decode(categories, 'utf-8')
+
+        return categories[codes]
+    
+    else:
+        # Fallback to regular dataset
+        return group[:]
+
 
 def load_sparse_rows_from_zarr(x_group, row_indices, max_block_size: int = 4000) -> sp.csr_matrix:
     """
@@ -110,10 +129,14 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
         # extract obs columns in the specified row range
 
         obs_dict = {}
-        for k in z['obs'].keys():
-            arr = z['obs'][k]
-            if hasattr(arr, 'shape'):  # basic check to make sure it's an array
-                obs_dict[k] = arr[:]
+        obs_group = z['obs']
+
+        for k in obs_group.keys():
+            try:
+                print(f"Processing key: {k}")
+                obs_dict[k] = load_obs_column(obs_group, k)
+            except Exception as e:
+                print(f"Error loading {k}: {e}")
 
         # Build dataframe
         obs = pd.DataFrame(obs_dict)
@@ -359,11 +382,11 @@ def generate_feature_presence_matrix(input_dir, gene_list, output_dir):
     print(f"Feature presence matrix saved to {os.path.join(output_dir, 'feature_presence_matrix.npy')}")
 
 
-input_dir = "/home/ubuntu/scREF_test/data/scMARK/scmark_zarr"
-fragment_dir = "/home/ubuntu/scREF_test/data/scMARK/zarr_fragments"
-output_dir = "/home/ubuntu/scREF_test/data/scMARK/zarr_train_blocks"
+input_dir = "/home/ubuntu/scRNA/scMARK/zarr"
+fragment_dir = "/home/ubuntu/scRNA/scMARK/zarr_fragments"
+output_dir = "/home/ubuntu/scRNA/scMARK/zarr_train_blocks"
 
-gene_list = pd.read_csv("/home/ubuntu/scREF_test/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",index_col=0)
+gene_list = pd.read_csv("/home/ubuntu/scRNA/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",index_col=0)
 gene_list = gene_list.index.tolist()
 
 

@@ -29,8 +29,8 @@ def convert_h5ad_to_zarr(h5ad_path, output_dir):
 
 def main():
     # Define paths
-    input_dir = "./scmark_v2"
-    output_dir = "./scmark_zarr"
+    input_dir = "/home/ubuntu/scRNA/scMARK/scmark"
+    output_dir = "/home/ubuntu/scRNA/scMARK/zarr"
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
