@@ -19,6 +19,15 @@ from ml_benchmarking.bascvi.utils.utils import calc_kni_score, calc_rbni_score
 
 logger = logging.getLogger("pytorch_lightning")
 
+# Configure logging to show validation statistics
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Output to stdout
+    ]
+)
+
 def get_datamodule(config):
     """Factory for datamodule based on config."""
     options = config["datamodule"]["options"]
@@ -168,6 +177,8 @@ def train(config: Dict):
     trainer, model = get_trainer_and_model(config, datamodule, wandb_logger)
     
     logger.info("-----------------------Starting training-----------------------")
+    logger.info("Training will run validation after each epoch")
+    logger.info("Validation statistics will be logged to stdout")
     trainer.fit(model, datamodule=datamodule)
     logger.info(f"Best model path: {trainer.checkpoint_callback.best_model_path}")
     logger.info(f"Best model score: {trainer.checkpoint_callback.best_model_score}")

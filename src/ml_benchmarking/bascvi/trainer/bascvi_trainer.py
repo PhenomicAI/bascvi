@@ -185,7 +185,15 @@ class BAScVITrainer(pl.LightningModule):
         self.log("trainer/kl_warmup_weight", self.kl_warmup_weight)
         self.log("trainer/global_step", self.global_step)
 
+        # Log training progress periodically
+        if batch_idx % 100 == 0:  # Log every 100 batches
+            self._log_training_progress(batch_idx, g_losses)
+
         return g_losses
+
+    def on_validation_epoch_start(self):
+        """Reset validation batch counter at the start of validation epoch."""
+        self.validation_batch_count = 0
 
     def validation_step(self, batch):
         encoder_outputs, _, g_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
@@ -207,6 +215,15 @@ class BAScVITrainer(pl.LightningModule):
         emb_output = torch.cat((z, torch.unsqueeze(batch["cell_idx"], 1)), 1)
         self.validation_step_outputs.append(emb_output)
 
+        # Log validation progress periodically
+        if hasattr(self, 'validation_batch_count'):
+            self.validation_batch_count += 1
+        else:
+            self.validation_batch_count = 1
+        
+        if self.validation_batch_count % 50 == 0:  # Log every 50 validation batches
+            self._log_validation_progress(self.validation_batch_count, g_losses)
+
         return g_losses
 
     def on_validation_epoch_end(self):
@@ -216,8 +233,108 @@ class BAScVITrainer(pl.LightningModule):
                 pass  # (keep your current logic here)
         elif backend == "zarr":
             logger.info("Skipping SOMA validation: running with Zarr backend.")
+            # Output validation statistics to stdout
+            self._log_validation_stats()
         else:
             logger.warning("Unknown backend or missing SOMA experiment URI, skipping validation/metrics.")
+
+    def _log_validation_stats(self):
+        """Log validation statistics to stdout."""
+        # Get the logged metrics from the current epoch
+        logged_metrics = self.trainer.logged_metrics
+        
+        if not logged_metrics:
+            logger.info("No validation metrics available for logging.")
+            return
+        
+        # Filter validation metrics
+        val_metrics = {k: v for k, v in logged_metrics.items() if k.startswith('val_loss/')}
+        
+        if not val_metrics:
+            logger.info("No validation loss metrics found.")
+            return
+        
+        # Print validation statistics
+        logger.info("=" * 60)
+        logger.info(f"VALIDATION STATISTICS - Epoch {self.current_epoch}")
+        logger.info("=" * 60)
+        
+        # Print key metrics first
+        key_metrics = ['val_loss/loss', 'val_loss/kl_loss', 'val_loss/recon_loss']
+        for metric_name in key_metrics:
+            if metric_name in val_metrics:
+                metric_value = val_metrics[metric_name]
+                if hasattr(metric_value, 'item'):
+                    metric_value = metric_value.item()
+                logger.info(f"{metric_name}: {metric_value:.6f}")
+        
+        # Print other validation metrics
+        other_val_metrics = {k: v for k, v in val_metrics.items() if k not in key_metrics}
+        if other_val_metrics:
+            logger.info("-" * 40)
+            logger.info("OTHER VALIDATION METRICS:")
+            for metric_name, metric_value in other_val_metrics.items():
+                if hasattr(metric_value, 'item'):
+                    metric_value = metric_value.item()
+                logger.info(f"{metric_name}: {metric_value:.6f}")
+        
+        # Print training metrics for comparison
+        train_metrics = {k: v for k, v in logged_metrics.items() if k.startswith('train_loss/')}
+        if train_metrics:
+            logger.info("-" * 40)
+            logger.info("TRAINING STATISTICS (for comparison):")
+            for metric_name, metric_value in train_metrics.items():
+                if hasattr(metric_value, 'item'):
+                    metric_value = metric_value.item()
+                logger.info(f"{metric_name}: {metric_value:.6f}")
+        
+        # Print trainer state information
+        logger.info("-" * 40)
+        logger.info("TRAINER STATE:")
+        logger.info(f"Global Step: {self.global_step}")
+        logger.info(f"Current Epoch: {self.current_epoch}")
+        logger.info(f"KL Warmup Weight: {self.kl_warmup_weight:.4f}")
+        logger.info(f"Disc Warmup Weight: {self.disc_warmup_weight:.4f}")
+        
+        logger.info("=" * 60)
+
+    def _log_training_progress(self, batch_idx, losses):
+        """Log training progress to stdout."""
+        # Get the main loss value
+        main_loss = losses.get('loss', 0)
+        if hasattr(main_loss, 'item'):
+            main_loss = main_loss.item()
+        
+        # Get other important metrics
+        kl_loss = losses.get('kl_loss', 0)
+        if hasattr(kl_loss, 'item'):
+            kl_loss = kl_loss.item()
+        
+        recon_loss = losses.get('recon_loss', 0)
+        if hasattr(recon_loss, 'item'):
+            recon_loss = recon_loss.item()
+        
+        logger.info(f"Epoch {self.current_epoch}, Batch {batch_idx}: "
+                   f"Loss={main_loss:.6f}, KL={kl_loss:.6f}, Recon={recon_loss:.6f}")
+
+    def _log_validation_progress(self, batch_count, losses):
+        """Log validation progress to stdout."""
+        # Get the main loss value
+        main_loss = losses.get('loss', 0)
+        if hasattr(main_loss, 'item'):
+            main_loss = main_loss.item()
+        
+        # Get other important metrics
+        kl_loss = losses.get('kl_loss', 0)
+        if hasattr(kl_loss, 'item'):
+            kl_loss = kl_loss.item()
+        
+        recon_loss = losses.get('recon_loss', 0)
+        if hasattr(recon_loss, 'item'):
+            recon_loss = recon_loss.item()
+        
+        logger.info(f"Validation Epoch {self.current_epoch}, Batch {batch_count}: "
+                   f"Loss={main_loss:.6f}, KL={kl_loss:.6f}, Recon={recon_loss:.6f}")
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
