@@ -11,8 +11,7 @@
                     "dataloader_args": {
             "batch_size": 64,
             "num_workers": 6,
-            "pin_memory": true,
-            "prefetch_factor": 2
+            "pin_memory": true
         }
         }
     },
@@ -52,7 +51,7 @@
             "train_adversarial": true,
             "train_library": true,
             "reduce_lr_on_plateau": true,
-            "max_epochs": 1
+            "max_epochs": 10
         },
 
         "callbacks_args": {
