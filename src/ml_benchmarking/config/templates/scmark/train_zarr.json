@@ -51,7 +51,7 @@
             "train_adversarial": true,
             "train_library": true,
             "reduce_lr_on_plateau": true,
-            "max_epochs": 5
+            "max_epochs": 100
         },
 
         "callbacks_args": {
