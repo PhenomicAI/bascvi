@@ -54,10 +54,6 @@ class BAScVI(nn.Module):
         batch_emb_dim: int = 0,  # default 0, 10,
         use_library = True,
         use_batch_encoder = True,
-        use_zinb = True,
-        macrogene_matrix = None,
-        macrogene_hidden_dim = None,
-        freeze_macrogene_matrix = True,
         predict_only = False
 
     ):
@@ -73,53 +69,18 @@ class BAScVI(nn.Module):
         self.normalize_total = normalize_total
         self.scaling_factor = scaling_factor
         self.use_library = use_library
-        self.use_zinb = use_zinb
-
         self.cs_loss = CosineSimilarity()
 
         self.batch_emb_dim = batch_emb_dim
 
         self.px_r = torch.nn.Parameter(torch.randn(n_input))
 
-        self.macrogene_hidden_dim = macrogene_hidden_dim
-
-        if macrogene_matrix is not None:
-            if self.macrogene_hidden_dim is not None:
-                self.macrogene_matrix_transform = torch.nn.Linear(macrogene_matrix.shape[1], self.macrogene_hidden_dim)
-                self.mg_norm_layer = nn.LayerNorm(self.macrogene_hidden_dim)
-            else:
-                self.mg_norm_layer = nn.LayerNorm(macrogene_matrix.shape[1])
-
-            
-            if freeze_macrogene_matrix:
-                self.macrogene_matrix = torch.nn.Parameter(macrogene_matrix, requires_grad=False)
-                # freeze the macrogene matrix
-                assert self.macrogene_matrix.requires_grad == False
-            else:
-                self.macrogene_matrix = torch.nn.Parameter(macrogene_matrix, requires_grad=True)
-                # unfreeze the macrogene matrix
-                assert self.macrogene_matrix.requires_grad == True
-            
-
-            print("Using macrogene matrix:", self.macrogene_matrix.shape, "hidden dim:", self.macrogene_hidden_dim, "frozen:", freeze_macrogene_matrix)
-        else:
-            print("Not using macrogene matrix")
-            self.macrogene_matrix = None
-
-
         # z encoder goes from the n_input-dimensional data to an n_latent-d
         # latent space representation
         n_input_encoder = n_input 
-        if macrogene_matrix is not None:
-            if self.macrogene_hidden_dim is not None:
-                n_input_encoder = self.macrogene_hidden_dim
-            else:
-                n_input_encoder = macrogene_matrix.shape[1]
-    
         
         self.z_encoder = BEncoder(
             n_input=n_input_encoder,
-            n_batch=self.n_batch,
             n_output=n_latent,
             n_layers=n_layers,
             n_hidden=n_hidden,
@@ -129,7 +90,6 @@ class BAScVI(nn.Module):
         if self.use_library:
             self.l_encoder = Encoder(
                 n_input=n_input_encoder,
-                n_batch=self.n_batch,
                 n_output=1,
                 n_layers=1,
                 n_hidden=n_hidden,
@@ -167,7 +127,7 @@ class BAScVI(nn.Module):
             torch.nn.init.xavier_uniform_(m.weight)
             torch.nn.init.zeros_(m.bias)
 
-    def inference(self, x, batch_emb):
+    def inference(self, x):
         """Run the inference step i.e forward pass of encoder of VAE to compute
         variational distribution parameters.
 
@@ -183,15 +143,16 @@ class BAScVI(nn.Module):
             dictionary of parameters for latent variational distribution
         """
         
-        qz_m, qz_v, z, x_pred = self.z_encoder(x, batch_emb)
+        qz_m, qz_v, z, x_pred = self.z_encoder(x)
 
         x_preds = []
+
         if hasattr(self, 'x_predictors') and self.x_predictors is not None:
             for i, x_predictor in enumerate(self.x_predictors):
                 x_preds.append(x_predictor(x_pred))
 
         if self.use_library:
-            ql_m, ql_v, library_encoded = self.l_encoder(x, batch_emb)
+            ql_m, ql_v, library_encoded = self.l_encoder(x)
             outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, ql_m=ql_m, ql_v=ql_v, library=library_encoded, x_preds=x_preds)
             
         else:
@@ -217,15 +178,23 @@ class BAScVI(nn.Module):
 
         z_preds = []
         if hasattr(self, 'z_predictors') and self.z_predictors is not None:
-            for i, z_predictor in enumerate(self.z_predictors):
+            for z_predictor in self.z_predictors:
                 z_preds.append(z_predictor(z_pred))
 
-        counts_pred = ZeroInflatedNegativeBinomial(mu=px_rate, theta=px_r, zi_logits=px_dropout).sample()
+        #counts_pred = ZeroInflatedNegativeBinomial(mu=px_rate, theta=px_r, zi_logits=px_dropout).sample()
         
-        return dict(px_scale=px_scale, px_r=px_r, px_rate=px_rate, px_dropout=px_dropout, z_preds=z_preds, counts_pred=counts_pred)
+        return dict(px_scale=px_scale, px_r=px_r, px_rate=px_rate, px_dropout=px_dropout, z_preds=z_preds) #, counts_pred=counts_pred)
 
     def forward(
-        self, batch: dict, kl_warmup_weight: float = 1.0, disc_loss_weight: float = 10.0, disc_warmup_weight: float = 1.0, kl_loss_weight: float = 1.0, compute_loss: bool = True, encode: bool = False, optimizer_idx=0, predict_mode=False
+        self, batch: dict, kl_warmup_weight: float = 1.0, 
+        disc_loss_weight: float = 10.0, 
+        disc_warmup_weight: float = 1.0, 
+        kl_loss_weight: float = 1.0, 
+        compute_loss: bool = True, 
+        encode: bool = False, 
+        optimizer_idx=0, 
+        predict_mode=False,
+        use_zinb: bool = True
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, Dict],]:
         
         x = batch["x"]
@@ -238,38 +207,22 @@ class BAScVI(nn.Module):
 
             local_l_mean = batch["local_l_mean"]
             local_l_var = batch["local_l_var"]
+
         else:
             batch_vec = torch.zeros(x.shape[0], self.n_batch).to(x.device)
             modality_vec = torch.zeros(x.shape[0], 1).to(x.device)
             study_vec = torch.zeros(x.shape[0], 1).to(x.device)
             sample_vec = torch.zeros(x.shape[0], 1).to(x.device)
 
-
-
         x_ = x
 
         if self.log_variational:
             x_ = torch.log(1 + x)
+
         elif self.normalize_total:
             x_ = torch.log(1 + self.scaling_factor * x / (x.sum(dim=1, keepdim=True) + 1e-6))
 
-        if self.macrogene_matrix is not None:
-            assert self.normalize_total == False & self.log_variational, "Cannot use macrogene matrix without log_variational set to true and normalize_total set to False"
-
-            if self.macrogene_hidden_dim is not None:
-                mg_mat = self.macrogene_matrix_transform(self.macrogene_matrix)
-                # add relu
-                mg_mat = torch.nn.functional.relu(mg_mat)
-            else:
-                mg_mat = self.macrogene_matrix
-
-            x_ = nn.functional.linear(x_, mg_mat.transpose(0, 1))
-            x_ = self.mg_norm_layer(x_)
-            x_ = nn.functional.relu(x_)
-
-
-        inference_outputs = self.inference(x_, batch_vec)
-
+        inference_outputs = self.inference(x_)
 
         if encode:
             return inference_outputs, None
@@ -338,8 +291,6 @@ class BAScVI(nn.Module):
 
             reconst_loss = self.get_reconstruction_loss(x, px_rate, px_r, px_dropout, feature_presence_mask)
             weighted_kl_local = kl_divergence_z
-
-            kl_divergence_l = 0
         
             if self.use_library:
         
@@ -353,7 +304,6 @@ class BAScVI(nn.Module):
 
                 weighted_kl_local = kl_divergence_z + kl_divergence_l
             
-            
             z_preds = generative_outputs["z_preds"]
             x_preds = inference_outputs["x_preds"]
 
@@ -365,7 +315,7 @@ class BAScVI(nn.Module):
             reconst_loss = torch.mean(reconst_loss)
             weighted_kl_local = torch.mean(weighted_kl_local)
 
-            loss = reconst_loss + kl_warmup_weight * kl_loss_weight * weighted_kl_local - disc_loss_weight * disc_warmup_weight * disc_loss_reduced 
+            loss = reconst_loss + weighted_kl_local - disc_loss_weight * disc_warmup_weight * disc_loss_reduced 
 
             loss_dict = {
                 "loss": loss, 
@@ -411,23 +361,26 @@ class BAScVI(nn.Module):
     
     def get_reconstruction_loss(self, x, px_rate, px_r, px_dropout, feature_presence_mask) -> torch.Tensor:
         """Computes reconstruction loss."""
-        if self.use_zinb:
-            reconst_loss = (
-                -ZeroInflatedNegativeBinomial(mu=px_rate, theta=px_r, zi_logits=px_dropout).log_prob(x)
-            )
-            reconst_loss = reconst_loss * feature_presence_mask
-        else:
-            reconst_loss = 10000 * (1 - self.cs_loss(px_dropout, x))
+        
+        reconst_loss = (
+            -ZeroInflatedNegativeBinomial(mu=px_rate, theta=px_r, zi_logits=px_dropout).log_prob(x)
+        )
+        
+        reconst_loss = reconst_loss * feature_presence_mask
+        #reconst_loss = 10000 * (1 - self.cs_loss(px_dropout, x))
 
         reconst_loss = reconst_loss.sum(dim=-1)
         return reconst_loss
     
     def get_disc_loss(self, preds, batch_vecs):
+
          # Skip if we're in predict_only mode or loss_cce is None
+
         if not hasattr(self, 'loss_cce') or self.loss_cce is None:
             return torch.tensor(0.0, device=preds[0].device if preds else None), []
         
         disc_losses = []
+
         for i, pred in enumerate(preds):
             disc_losses.append(self.loss_cce(pred, batch_vecs[i].argmax(dim=1)))
 
@@ -436,8 +389,6 @@ class BAScVI(nn.Module):
 
         return disc_loss_reduced, disc_losses
 
-
-        
 class BPredictor(nn.Module):
     def __init__(
         self,

@@ -193,14 +193,16 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
         z = zarr.open_group(zarr_path, mode='r')
         full_shape = z['X'].attrs['shape']
 
-        print(f"Processing {study_name}  with shape: {full_shape[0]} sample count: {sample_counter} zarr counter: {z_counter}")
-
         # Read gene names from Zarr file
         zarr_genes = z['var']['gene'][:].tolist()
-        
+
+        print(f"Processing {study_name}  with shape: {full_shape[0]} sample count: {sample_counter} zarr counter: {z_counter} gene count: {len(zarr_genes)}")
+
         # Build index map from gene_list -> zarr index or None
+
         zarr_gene_to_idx = {gene: i for i, gene in enumerate(zarr_genes)}
         gene_to_zarr_idx = {gene: zarr_gene_to_idx.get(gene, None) for gene in gene_list}
+        
         var_df = pd.DataFrame(gene_list, columns=['gene'])
 
         # extract obs columns in the specified row range
@@ -234,9 +236,6 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
                 
                 sample_X = load_sparse_rows_from_zarr(z['X'], row_indices)   
                 sample_obs = obs[mask].copy()
-
-                sample_obs['log_mean'] = log_mean(sample_X)
-                sample_obs['log_var'] = log_var(sample_X)
 
                 sample_obs['study_name'] = study_name
                 sample_obs['study_idx'] = z_counter
@@ -272,8 +271,6 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
             # Add required columns to the original obs dataframe
             # Load all data to calculate log mean and variance
             all_X = load_sparse_rows_from_zarr(z['X'], np.arange(len(obs)))
-            obs['log_mean'] = log_mean(all_X)
-            obs['log_var'] = log_var(all_X)
             obs['study_name'] = study_name
             obs['study_idx'] = z_counter
             obs['sample_idx'] = sample_counter
@@ -359,6 +356,15 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
             # Apply mask to matrix and obs
             X_final_block_filtered = X_final_block[cell_mask, :]
             obs_filtered = obs_df[start:stop].iloc[cell_mask]
+
+            # Calculate log_mean and log_var from filtered data
+            if hasattr(X_final_block_filtered, 'getnnz'):
+                log_counts = np.log(X_final_block_filtered.sum(axis=1).A1 + 1e-6)
+            else:
+                log_counts = np.log(X_final_block_filtered.sum(axis=1) + 1e-6)
+            
+            obs_filtered['log_mean'] = np.mean(log_counts)
+            obs_filtered['log_var'] = np.var(log_counts)
 
             # Write AnnData object
             ad_write = ad.AnnData(X=X_final_block_filtered, obs=obs_filtered, var=var_df)
@@ -475,6 +481,7 @@ def generate_feature_presence_matrix(input_dir, gene_list, output_dir):
     # Find all .zarr files in the input_dir
     zarr_files = [os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith('.zarr')]
     zarr_files.sort()
+    
     num_studies = len(zarr_files)
     num_genes = len(gene_list)
     feature_presence = np.zeros((num_studies, num_genes), dtype=np.int8)

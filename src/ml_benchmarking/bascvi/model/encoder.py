@@ -22,8 +22,6 @@ class Encoder(nn.Module):
     ----------
     n_input
         The dimensionality of the input (data space)
-    n_batch
-        Number of batches, either no. of batches in input data or batch embedding dimension
     n_output
         The dimensionality of the output (latent space)
     n_layers
@@ -37,7 +35,6 @@ class Encoder(nn.Module):
     def __init__(
         self,
         n_input: int,
-        n_batch: int,
         n_output: int,
         n_layers: int = 1,
         n_hidden: int = 128,
@@ -47,7 +44,6 @@ class Encoder(nn.Module):
         super().__init__()
 
         self.var_eps = var_eps
-        self.n_batch = n_batch
         layers_dim = [n_input] + (n_layers) * [n_hidden]
         self.encoder = nn.Sequential(
             collections.OrderedDict(
@@ -56,7 +52,7 @@ class Encoder(nn.Module):
                         "Layer_{}".format(i),
                         nn.Sequential(
                             nn.Linear(
-                                n_in + n_batch,
+                                n_in,
                                 n_out,
                             ),
                             nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001), # nn.LayerNorm(n_out),
@@ -72,8 +68,7 @@ class Encoder(nn.Module):
         self.mean_encoder = nn.Linear(n_hidden, n_output)
         self.var_encoder = nn.Linear(n_hidden, n_output)
 
-
-    def forward(self, x: torch.Tensor, batch_emb: torch.Tensor, use_batch_encoder=True):
+    def forward(self, x: torch.Tensor):
         r"""
         The forward computation for a single sample.
          #. Encodes the data into latent space using the encoder network
@@ -83,21 +78,14 @@ class Encoder(nn.Module):
         ----------
         x
             tensor with shape (n_input,)
-        batch_emb
-            batch_emb for this sample
-        Returns
+
         -------
         3-tuple of :py:class:`torch.Tensor`
             tensors of shape ``(n_latent,)`` for mean and var, and sample
         """
-        if use_batch_encoder:
-            for layer in self.encoder:
-                x = torch.cat((x, batch_emb), dim=-1)
-                x = layer(x)
-        else:
-            for layer in self.encoder:
-                x = torch.cat((x, batch_emb-batch_emb), dim=-1)
-                x = layer(x)
+
+        for layer in self.encoder:
+            x = layer(x)
 
         # Parameters for latent distribution
         q = x

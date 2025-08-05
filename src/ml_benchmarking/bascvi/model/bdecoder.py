@@ -40,7 +40,7 @@ class BDecoder(nn.Module):
                     n_input,
                     n_hidden,
                     ),
-            nn.LayerNorm(n_hidden, eps=1e-5), # nn.LayerNorm(n_hidden),
+            nn.BatchNorm1d(n_hidden, eps=1e-3), # nn.LayerNorm(n_hidden),
             nn.ReLU(),
             )
         
@@ -56,7 +56,7 @@ class BDecoder(nn.Module):
                                 n_in + n_batch,
                                 n_out,
                             ),
-                            nn.LayerNorm(n_out, eps=1e-5), # nn.LayerNorm(n_out),
+                            nn.BatchNorm1d(n_out, eps=1e-3), # nn.LayerNorm(n_out),
                             nn.ReLU(),
                         ),
                     )
@@ -103,16 +103,20 @@ class BDecoder(nn.Module):
         for layer in self.px_decoder:
             z = torch.cat((z, batch_emb), dim=-1)
             z = layer(z)
-        px = z
-        px_scale = self.px_scale_decoder(px)
 
+        px = z
+
+        px_scale = self.px_scale_decoder(px)
         px_dropout = self.px_dropout_decoder(px)
+
         # Clamp to high value: exp(12) ~ 160000 to avoid nans (computational stability)
-        clamp_max = torch.exp(torch.tensor([11.0])).item()
+        clamp_max = torch.exp(torch.tensor([12.0])).item()
+
         if library is None:
             px_rate = px_scale.clamp(max=clamp_max)  # torch.clamp( , max=12)
         else:
             px_rate = (torch.exp(library) * px_scale).clamp(max=clamp_max)  # torch.clamp( , max=12)
+
         return px_scale, px_rate, px_dropout, z_pred
 
 

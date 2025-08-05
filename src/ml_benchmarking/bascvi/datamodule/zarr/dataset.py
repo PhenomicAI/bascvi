@@ -27,6 +27,7 @@ class ZarrDataset(IterableDataset):
         gene_list: Optional[List[str]] = None,
         validation_split: float = 0.1,
         is_validation: bool = False,
+        min_nnz: int = 300,
     ) -> None:
 
         self.data_root_dir = data_root_dir
@@ -40,6 +41,7 @@ class ZarrDataset(IterableDataset):
         self.num_modalities, self.num_studies, self.num_samples = batch_level_sizes
         self.validation_split = validation_split
         self.is_validation = is_validation
+        self.min_nnz = min_nnz
 
         self.zarr_files = sorted(glob(os.path.join(self.data_root_dir, '*.zarr')))
         assert self.zarr_files, f"No .zarr files found in {self.data_root_dir}"
@@ -117,9 +119,10 @@ class ZarrDataset(IterableDataset):
     def _get_block(self, curr_block):
         zarr_path = self.zarr_files[curr_block]
         adata = ad.read_zarr(zarr_path)
-        obs_df_block = adata.obs.reset_index()
+        obs_df_block = adata.obs
         X_block = adata.X
-        # Ensure cell_idx is properly converted to int64 and handle any potential overflow
+        
+        # Load data and metadata
         cell_idx_block = obs_df_block["cell_idx"].astype(np.int64).to_numpy()
         modality_idx_block = np.zeros(obs_df_block.shape[0], dtype=np.int64)
         study_idx_block = obs_df_block["study_idx"].to_numpy()
@@ -131,14 +134,15 @@ class ZarrDataset(IterableDataset):
 
     def _make_datum(self, X_curr, cell_idx, feature_presence_mask, modality_idx, study_idx, sample_idx, local_l_mean, local_l_var):
         base = {
+
             "x": torch.from_numpy(X_curr.astype("int32")),
             "cell_idx": torch.tensor(int(cell_idx), dtype=torch.int64),
             "feature_presence_mask": torch.from_numpy(feature_presence_mask),
             "modality_vec": F.one_hot(torch.tensor(modality_idx, dtype=torch.long), num_classes=self.num_modalities).float(),
             "study_vec": F.one_hot(torch.tensor(study_idx, dtype=torch.long), num_classes=self.num_studies).float(),
             "sample_vec": F.one_hot(torch.tensor(sample_idx, dtype=torch.long), num_classes=self.num_samples).float(),
-            "local_l_mean": torch.tensor(0.0 if np.isinf(local_l_mean) else local_l_mean),
-            "local_l_var": torch.tensor(1.0 if np.isnan(local_l_var) else local_l_var),
+            "local_l_mean": torch.tensor(local_l_mean),
+            "local_l_var": torch.tensor(local_l_var),
         }
         return base
 
@@ -177,6 +181,8 @@ class ZarrDataset(IterableDataset):
             datum = self._make_datum(
                 X_curr, cell_idx, feature_presence_mask, modality_idx, study_idx, sample_idx, local_l_mean, local_l_var
             )
+
+
             if (self.cell_counter + 1) == len(cell_idx_block):
                 self.block_counter += 1
                 self.cell_counter = 0

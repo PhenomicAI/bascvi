@@ -15,11 +15,12 @@ from ml_benchmarking.bascvi.datamodule.zarr.dataset import ZarrDataset
 warnings.filterwarnings("ignore", message="Your `IterableDataset` has `__len__` defined")
 
 class ZarrDataModule(pl.LightningDataModule):
-    def __init__(self, data_root_dir: str = "", dataloader_args: Dict = {}, random_seed: int = 42):
+    def __init__(self, data_root_dir: str = "", dataloader_args: Dict = {}, random_seed: int = 42, min_nnz: int = 300):
         super().__init__()
         self.data_root_dir = data_root_dir
         self.dataloader_args = dataloader_args
         self.random_seed = random_seed
+        self.min_nnz = min_nnz
         self.backend = "zarr"  # Set backend to zarr
         assert os.path.exists(data_root_dir), f"Data root directory {data_root_dir} does not exist"
 
@@ -52,6 +53,7 @@ class ZarrDataModule(pl.LightningDataModule):
             num_workers=self.dataloader_args.get('num_workers', 1),
             block_size=self.dataloader_args.get('batch_size', 64),
             validation_split=0.1,  # 10% for validation
+            min_nnz=self.min_nnz,
         )
         if stage == "fit":
             print("Stage = Fitting")
@@ -59,6 +61,7 @@ class ZarrDataModule(pl.LightningDataModule):
             self.val_dataset = ZarrDataset(is_validation=True, **dataset_args)
             print(f"Train dataset length: {len(self.train_dataset)}")
             print(f"Val dataset length: {len(self.val_dataset)}")
+            
         elif stage == "predict":
             print("Stage = Predicting on Zarr blocks")
             self.pred_dataset = ZarrDataset(predict_mode=True, **dataset_args)

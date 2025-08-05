@@ -22,8 +22,6 @@ class BEncoder(nn.Module):
     ----------
     n_input
         The dimensionality of the input (data space)
-    n_batch
-        Number of batches, either no. of batches in input data or batch embedding dimension
     n_output
         The dimensionality of the output (latent space)
     n_layers
@@ -37,7 +35,6 @@ class BEncoder(nn.Module):
     def __init__(
         self,
         n_input: int,
-        n_batch: int,
         n_output: int,
         n_layers: int = 1,
         n_hidden: int = 128,
@@ -47,7 +44,6 @@ class BEncoder(nn.Module):
         super().__init__()
 
         self.var_eps = var_eps
-        self.n_batch = n_batch
         layers_dim = [n_input] + (n_layers) * [n_hidden]
         
         self.encoder = nn.Sequential(
@@ -57,10 +53,10 @@ class BEncoder(nn.Module):
                         "Layer_{}".format(i),
                         nn.Sequential(
                             nn.Linear(
-                                n_in + n_batch,
+                                n_in,
                                 n_out,
                             ),
-                            nn.LayerNorm(n_out, eps=1e-5), #nn.LayerNorm(n_out),
+                            nn.BatchNorm1d(n_out, eps=1e-3), #nn.LayerNorm(n_out),
                             nn.ReLU(),
                             nn.Dropout(p=dropout_rate),
                         ),
@@ -75,15 +71,14 @@ class BEncoder(nn.Module):
                     n_hidden,
                     n_hidden,
                     ),
-            nn.LayerNorm(n_hidden, eps=1e-5), # nn.LayerNorm(n_hidden),
+            nn.BatchNorm1d(n_hidden, eps=1e-3), # nn.LayerNorm(n_hidden),
             nn.ReLU(),
             )
             
         self.mean_encoder = nn.Linear(n_hidden, n_output)
         self.var_encoder = nn.Linear(n_hidden, n_output)
 
-
-    def forward(self, x: torch.Tensor, batch_emb: torch.Tensor):
+    def forward(self, x: torch.Tensor):
         r"""
         The forward computation for a single sample.
          #. Encodes the data into latent space using the encoder network
@@ -93,18 +88,13 @@ class BEncoder(nn.Module):
         ----------
         x
             tensor with shape (n_input,)
-        batch_emb
-            batch_emb for this sample
         Returns
         -------
         3-tuple of :py:class:`torch.Tensor`
             tensors of shape ``(n_latent,)`` for mean and var, and sample
         """
 
-        for i, layer in enumerate(self.encoder):
-            # Concatenate padding
-            x = torch.cat((x, torch.zeros(x.shape[0], self.n_batch, device=x.device, dtype=x.dtype)), dim=-1)
-            
+        for layer in self.encoder:
             # Forward through layer
             x = layer(x)
 
