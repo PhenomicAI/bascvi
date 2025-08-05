@@ -315,7 +315,7 @@ class BAScVI(nn.Module):
             reconst_loss = torch.mean(reconst_loss)
             weighted_kl_local = torch.mean(weighted_kl_local)
 
-            loss = reconst_loss + weighted_kl_local - disc_loss_weight * disc_warmup_weight * disc_loss_reduced 
+            loss = reconst_loss + kl_warmup_weight * kl_loss_weight * weighted_kl_local - disc_loss_weight * disc_warmup_weight * disc_loss_reduced 
 
             loss_dict = {
                 "loss": loss, 

@@ -31,7 +31,7 @@
 
         "training_args": {
             "kl_loss_weight": 1.0,
-            "disc_loss_weight": 1.0,
+            "disc_loss_weight": 1000.0,
 
             "n_steps_kl_warmup":50,
             "n_steps_discriminator_warmup": 5,
@@ -52,7 +52,7 @@
             "train_adversarial": true,
             "train_library": true,
             "reduce_lr_on_plateau": true,
-            "max_epochs": 5
+            "max_epochs": 10
         },
 
         "callbacks_args": {
