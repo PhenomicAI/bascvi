@@ -13,7 +13,6 @@ from ml_benchmarking.bascvi.model.distributions import ZeroInflatedNegativeBinom
 
 import numpy as np
 
-
 class BAScVI(nn.Module):
 
     """Variational auto-encoder model.

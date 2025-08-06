@@ -5,8 +5,9 @@ from typing import Dict
 
 from pytorch_lightning import Trainer
 import torch
+import anndata as ad
 
-from ml_benchmarking.bascvi.datamodule import TileDBSomaIterDataModule, AnnDataDataModule, EmbDatamodule
+from ml_benchmarking.bascvi.datamodule import TileDBSomaIterDataModule, AnnDataDataModule, EmbDatamodule, ZarrDataModule
 from ml_benchmarking.bascvi.datamodule.soma.soma_helpers import open_soma_experiment
 
 
@@ -66,7 +67,15 @@ def predict(config: Dict):
     if "class_name" not in config["datamodule"]:
         config["datamodule"]["class_name"] = "TileDBSomaIterDataModule"
 
-    if config["datamodule"]["class_name"] == "TileDBSomaIterDataModule":
+    # Handle ZarrDataModule specially - it doesn't need pretrained_gene_list or root_dir
+    if config["datamodule"]["class_name"] == "ZarrDataModule":
+        # Remove parameters that ZarrDataModule doesn't accept
+        options = config["datamodule"]["options"].copy()
+        options.pop("pretrained_gene_list", None)
+        options.pop("root_dir", None)
+        options.pop("pretrained_batch_size", None)
+        datamodule = ZarrDataModule(**options)
+    elif config["datamodule"]["class_name"] == "TileDBSomaIterDataModule":
         config["datamodule"]["options"]["root_dir"] = config["run_save_dir"]
         datamodule = TileDBSomaIterDataModule(**config["datamodule"]["options"])
 
@@ -75,6 +84,9 @@ def predict(config: Dict):
 
     elif config["datamodule"]["class_name"] == "AnnDataDataModule":
         datamodule = AnnDataDataModule(**config["datamodule"]["options"])
+
+    else:
+        raise ValueError(f"Unknown datamodule class: {config['datamodule']['class_name']}")
 
     datamodule.setup(stage="predict")
 
@@ -98,6 +110,9 @@ def predict(config: Dict):
     elif config["datamodule"]["class_name"] == "AnnDataDataModule":
         emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 2)]
         embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["file_counter", "cell_counter"])
+    elif config["datamodule"]["class_name"] == "ZarrDataModule":
+        emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 1)]  # -1 accounts for cell_idx
+        embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["cell_idx"])
     else:
         emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1])]
         embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns)
@@ -127,6 +142,28 @@ def predict(config: Dict):
         file_paths_df = pd.DataFrame(datamodule.file_paths, columns=["file_path"])
         file_paths_df["file_counter"] = file_paths_df.index 
         embeddings_df = embeddings_df.merge(file_paths_df, on="file_counter")
+    elif config["datamodule"]["class_name"] == "ZarrDataModule":
+        # Collect obs data from all zarr files to map to predictions
+        logger.info("--------------------------Collecting obs data from zarr files----------------------------")
+        all_obs_data = []
+        
+        # Get zarr files from datamodule
+        from glob import glob
+        zarr_files = sorted(glob(os.path.join(datamodule.data_root_dir, '*.zarr')))
+        
+        for zarr_file in zarr_files:
+            adata = ad.read_zarr(zarr_file)
+            obs_df = adata.obs.reset_index()
+            all_obs_data.append(obs_df)
+        
+        # Combine all obs data
+        combined_obs_df = pd.concat(all_obs_data, ignore_index=True)
+        
+        # Map obs data to embeddings using cell_idx (which is now a hash-based unique identifier)
+        embeddings_df = embeddings_df.merge(combined_obs_df, left_on='cell_idx', right_on='cell_idx', how='left')
+        
+        logger.info(f"Embeddings shape: {embeddings_df.shape}")
+        logger.info(f"Available columns: {list(embeddings_df.columns)}")
 
     if "embedding_file_name" not in config:
         config["embedding_file_name"] = "pred_" + config["pretrained_model_path"].split("/")[-1].split(".")[0]

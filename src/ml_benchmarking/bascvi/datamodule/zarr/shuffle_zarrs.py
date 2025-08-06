@@ -66,43 +66,6 @@ def generate_cell_idx_with_counter(study_name, barcode, study_idx, sample_idx, c
     cell_idx = ((hash_part * 1000000) + cell_counter) % (2**63)
     return cell_idx
 
-def generate_cell_idx(study_name, barcode, study_idx, sample_idx):
-    """
-    Generate a globally unique cell identifier based on study, barcode, and indices.
-    
-    This function creates a deterministic, globally unique identifier for each cell
-    by combining the study name, cell barcode, study index, and sample index into
-    a hash. This ensures that the same cell will always get the same cell_idx,
-    even across different processing runs or data shuffling operations.
-    
-    The hash is truncated to fit within int64 range to avoid overflow issues.
-    
-    Parameters
-    ----------
-    study_name : str
-        Name of the study
-    barcode : str
-        Cell barcode
-    study_idx : int
-        Study index
-    sample_idx : int
-        Sample index
-    
-    Returns
-    -------
-    int
-        Globally unique cell identifier (fits within int64 range)
-    """
-    # Create a unique string combining all identifiers
-    unique_string = f"{study_name}_{barcode}_{study_idx}_{sample_idx}"
-    # Generate hash and convert to integer
-    hash_object = hashlib.md5(unique_string.encode())
-    hash_hex = hash_object.hexdigest()
-    # Convert first 12 characters of hash to integer (48-bit) to fit within int64 range
-    # This gives us 2^48 possible values, which is more than enough for cell identification
-    cell_idx = int(hash_hex[:12], 16)
-    return cell_idx
-
 def load_obs_column(zarr_obs_group, key):
     group = zarr_obs_group[key]
     attrs = dict(group.attrs)
@@ -124,9 +87,11 @@ def load_obs_column(zarr_obs_group, key):
 
 
 def load_sparse_rows_from_zarr(x_group, row_indices, max_block_size: int = 4000) -> sp.csr_matrix:
+
     """
     Load selected rows from Zarr-backed CSR matrix in efficient blocks.
     """
+
     row_indices = np.sort(np.array(row_indices, dtype=np.int64))
     n_genes = x_group.attrs['shape'][1]
 
@@ -219,6 +184,7 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
 
         # Build dataframe
         obs = pd.DataFrame(obs_dict)
+        obs['order'] = np.arange(len(obs))
 
         ad_obs_list = []
 
@@ -246,6 +212,7 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
                 # Generate globally unique cell_idx for each cell using hash + counter approach
                 # This ensures each cell has a unique, deterministic identifier that can be used
                 # to map model outputs back to the original input cells
+
                 sample_obs['cell_idx'] = sample_obs.apply(
                     lambda row: generate_cell_idx_with_counter(
                         study_name, 
@@ -264,6 +231,7 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
                 # Clean up per-sample objects
                 del sample_X, sample_obs
                 gc.collect()
+                
         else:
             # Fallback: treat entire file as one sample if no sample_name or sample_idx column
             print(f"No sample_name column found in {study_name}, treating entire file as one sample")
@@ -301,9 +269,11 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
 
         # Only concatenate if we processed multiple samples
         if 'sample_name' in obs.columns:
+
             obs_df = pd.concat(ad_obs_list)
             # Clean up ad_obs_list
             del ad_obs_list
+            
         # obs_df is already set in the fallback case
         gc.collect()
 
@@ -316,6 +286,9 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
         
         obs_df.index.name = 'barcode'
         block_size = 50000
+
+        obs_df.sort_values(by='order',inplace=True)
+        obs_df.drop(columns=['order'],inplace=True)
 
         for zz, block in enumerate(range(0, full_shape[0], block_size)):
 
