@@ -119,7 +119,7 @@ class ZarrDataset(IterableDataset):
     def _get_block(self, curr_block):
         zarr_path = self.zarr_files[curr_block]
         adata = ad.read_zarr(zarr_path)
-        obs_df_block = adata.obs
+        obs_df_block = adata.obs.reset_index()
         X_block = adata.X
         
         # Load data and metadata

@@ -10,7 +10,7 @@
             "data_root_dir": "/home/ubuntu/scREF_test/data/scref_ICLR_2025/zarr_train_blocks/",
             "dataloader_args": {
                 "batch_size": 64,
-                "num_workers": 1,
+                "num_workers": 4,
                 "pin_memory": true
             }
         }
@@ -32,8 +32,8 @@
             "kl_loss_weight": 1.0,
             "disc_loss_weight": 1000.0,
 
-            "n_steps_kl_warmup": 10,
-            "n_steps_discriminator_warmup": 10,
+            "n_steps_kl_warmup": 50,
+            "n_steps_discriminator_warmup": 50,
             "sigmoidal_disc_warmup": true, 
 
             "save_validation_umaps": true,

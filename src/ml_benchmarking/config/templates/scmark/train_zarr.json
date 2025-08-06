@@ -31,10 +31,10 @@
 
         "training_args": {
             "kl_loss_weight": 1.0,
-            "disc_loss_weight": 1000.0,
+            "disc_loss_weight": 1.0,
 
             "n_steps_kl_warmup":50,
-            "n_steps_discriminator_warmup": 5,
+            "n_steps_discriminator_warmup": 50,
             "sigmoidal_disc_warmup": true, 
 
             "save_validation_umaps": true,
@@ -45,19 +45,24 @@
                 "weight_decay": 1e-5
             },
             "discriminator_optimizer": {
-                "lr": 1e-2,
+                "lr": 1e-4,
                 "weight_decay": 1e-5
             },
         
             "train_adversarial": true,
             "train_library": true,
             "reduce_lr_on_plateau": true,
-            "max_epochs": 200
+            "max_epochs": 100
         },
 
         "callbacks_args": {
             "model_checkpoint": {
                 "monitor": "val_loss/loss",
+                "mode": "min"
+            },
+            "early_stopping": {
+                "monitor": "val_loss/loss",
+                "patience": 10,
                 "mode": "min"
             }
         }

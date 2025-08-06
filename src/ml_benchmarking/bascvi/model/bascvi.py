@@ -18,7 +18,7 @@ class BAScVI(nn.Module):
 
     """Variational auto-encoder model.
 
-    This is an implementation of the scVI model descibed in [Lopez18]_
+    This is an optimized version of the scVI model descibed in [Lopez18] with the addition of a discriminator network to predict the batch labels.
 
     Parameters
     ----------
@@ -43,9 +43,9 @@ class BAScVI(nn.Module):
         n_input: int,
         batch_level_sizes: List[int],
         n_batch: int = 0,
-        n_hidden: int = 128,
+        n_hidden: int = 512,
         n_latent: int = 10,
-        n_layers: int = 1,
+        n_layers: int = 4,
         dropout_rate: float = 0.1,
         log_variational: bool = False,
         normalize_total: bool = True,
@@ -215,7 +215,6 @@ class BAScVI(nn.Module):
             sample_vec = torch.zeros(x.shape[0], 1).to(x.device)
 
         x_ = x
-
         if self.log_variational:
             x_ = torch.log(1 + x)
 
@@ -264,7 +263,7 @@ class BAScVI(nn.Module):
         generative_outputs,
         batch_vecs: List[torch.Tensor],
         feature_presence_mask,
-        disc_loss_weight: float = 10.0,
+        disc_loss_weight: float = 1.0,
         disc_warmup_weight: float = 1.0,
         kl_loss_weight: float = 1.0,
         kl_warmup_weight: float = 1.0,

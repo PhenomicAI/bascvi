@@ -145,8 +145,10 @@ class BAScVITrainer(pl.LightningModule):
         return 1.0
         
     def training_step(self, batch, batch_idx):
+        
         if batch["x"].shape[0] < 3:
             return None
+
         if self.training_args.get("train_adversarial"):
 
             g_opt, d_opt = self.optimizers()
