@@ -1,20 +1,91 @@
 # BAscVI
 
-## This repo accompanies the paper "Adversarial learning enables unbiased organism-wide cross-species alignment of single-cell RNA data at scale"
+This repository accompanies the paper:
 
-[arXiv paper](https://arxiv.org/abs/2503.20730v1)
+**“Adversarial learning enables unbiased organism-wide cross-species alignment of single-cell RNA data at scale”**  
+[arXiv preprint](https://arxiv.org/abs/2503.20730v1)
 
-This repo contains three installable modules:
+---
 
-pai: An API for inference of cell-type embeddings and cell-types labels from scRNA datasets - supports H5AD formats downloadable from cellxcgene
+## Repository Overview
 
-pai_soma_data: A wrapper for TileDB needed for exploring the scREF atlas we provide here on the example notebooks we provide on TileDB in the public notebooks at Phenomic/Reading from scREF and scREF-mu
+This repo contains three Python modules that can be installed separately depending on your use case:
 
-ml_benchmarking: Code needed to run and evaluate ML models on the scREF and scREF-mu banchmark
+- **pai**  
+  API for inference of cell-type embeddings and cell-type labels from scRNA-seq datasets.  
+  Supports `.h5ad` formats (downloadable from cellxgene).
 
+- **pai_soma_data**  
+  A wrapper around TileDB for exploring the scREF atlas, used in our public notebooks.
 
+- **ml_benchmarking**  
+  Code to run and evaluate ML models on the scREF and scREF-mu benchmarks.
 
+---
+
+## Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/PhenomicAI/bascvi.git
+cd bascvi
+```
+
+### Install `pai`
+
+```bash
+pip install -e src/pai
+```
+
+Verify:
+
+```python
+from pai.utils.option_choices import tissue_organ_option_choices
+from pai.embed import PaiEmbeddings
+```
+
+### Install `pai_soma_data`
+
+```bash
+pip install -e src/pai_soma_data
+```
+
+Verify:
+
+```python
+from pai_soma_data import pai_soma_data
+```
+
+### Install `ml_benchmarking`
+
+```bash
+pip install -e src/ml_benchmarking
+```
+
+Verify:
+
+```python
+import ml_benchmarking.bascvi as bascvi
+```
+
+You can install any combination of these modules depending on your needs.
+
+---
+
+## Example Usage
+
+```python
+from pai.utils.option_choices import tissue_organ_option_choices
+from pai.embed import PaiEmbeddings
+from pai_soma_data import pai_soma_data
+import ml_benchmarking.bascvi as bascvi
+```
+
+---
 
 ## License
 
-Everything is released under an MIT license, please feel free to use it, but please cite us as we have cited others.
+Everything is released under an MIT license. Please feel free to use it, but cite us as we have cited others.
+
+---
