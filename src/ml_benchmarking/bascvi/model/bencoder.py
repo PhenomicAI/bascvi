@@ -53,7 +53,7 @@ class BEncoder(nn.Module):
                         "Layer_{}".format(i),
                         nn.Sequential(
                             nn.Linear(
-                                n_in, #n_in + 3019 - Legacy model checkpoint
+                                n_in,
                                 n_out,
                             ),
                             nn.BatchNorm1d(n_out, eps=1e-3), #nn.LayerNorm(n_out),
@@ -96,7 +96,7 @@ class BEncoder(nn.Module):
 
         for layer in self.encoder:
             # Forward through layer
-            x = layer(x) # x = layer(torch.cat([x, torch.zeros(x.shape[0], 3019).to(x.device)], dim=1)) - Legacy model checkpoint
+            x = layer(x) 
 
         # Final block encoder
         x = self.b_encoder(x)
