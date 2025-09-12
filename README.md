@@ -32,7 +32,13 @@ git clone https://github.com/PhenomicAI/bascvi.git
 cd bascvi
 ```
 
-### Install `pai`
+
+### pip install pai - recomended 
+
+!pip install -U phenomic-ai  
+
+
+### Install `pai` from local
 
 ```bash
 pip install -e src/pai
