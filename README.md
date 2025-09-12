@@ -40,6 +40,8 @@ pip install -U phenomic-ai
 
 ### Install `pai` from local
 
+TODO: update github version to 1.11
+
 ```bash
 pip install -e src/pai
 ```
