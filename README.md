@@ -34,9 +34,9 @@ cd bascvi
 
 
 ### pip install pai - recomended 
-
-!pip install -U phenomic-ai  
-
+```bash
+pip install -U phenomic-ai  
+```
 
 ### Install `pai` from local
 
