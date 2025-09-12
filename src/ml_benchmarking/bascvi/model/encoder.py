@@ -52,7 +52,7 @@ class Encoder(nn.Module):
                         "Layer_{}".format(i),
                         nn.Sequential(
                             nn.Linear(
-                                n_in, # n_in + 3019, - Legacy model checkpoint
+                                n_in, 
                                 n_out,
                             ),
                             nn.BatchNorm1d(n_out, momentum=0.01, eps=0.001), # nn.LayerNorm(n_out),
@@ -85,8 +85,8 @@ class Encoder(nn.Module):
         """
 
         for layer in self.encoder:
-            x = layer(x) # x = layer(torch.cat([x, torch.zeros(x.shape[0], 3019).to(x.device)], dim=1)) - Legacy model checkpoint
-
+            x = layer(x) 
+            
         # Parameters for latent distribution
         q = x
         q_m = self.mean_encoder(q)
