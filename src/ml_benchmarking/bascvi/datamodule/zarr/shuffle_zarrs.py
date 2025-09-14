@@ -471,13 +471,12 @@ def generate_feature_presence_matrix(input_dir, gene_list, output_dir):
     print(f"Feature presence matrix saved to {os.path.join(output_dir, 'feature_presence_matrix.npy')}")
 
 
-input_dir = "/home/ubuntu/scRNA/scMARK/zarr"
-fragment_dir = "/home/ubuntu/scRNA/scMARK/zarr_fragments"
-output_dir = "/home/ubuntu/scRNA/scMARK/zarr_train_blocks"
+input_dir = "/home/ubuntu/scpedia_zarrs"
+fragment_dir = "/home/ubuntu/zarr_fragments"
+output_dir = "/home/ubuntu/zarr_train_blocks"
 
-gene_list = pd.read_csv("/home/ubuntu/scRNA/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",index_col=0)
+gene_list = pd.read_csv("/home/ubuntu/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",index_col=0,header=None)
 gene_list = gene_list.index.tolist()
-
 
 fragment_zarr(input_dir, fragment_dir, output_dir, gene_list)
 shuffle_and_refragment(fragment_dir,output_dir)

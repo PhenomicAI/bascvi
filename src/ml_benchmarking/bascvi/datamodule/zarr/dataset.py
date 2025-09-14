@@ -53,7 +53,10 @@ class ZarrDataset(IterableDataset):
         self.cell_counter = 0
 
     def __len__(self) -> int:
-        # Calculate length based on the split
+        # In predict mode, use all data without splits
+        if self.predict_mode:
+            return self._len
+        # Calculate length based on the split for training/validation
         if self.is_validation:
             # Use last validation_split portion of blocks
             split_point = int(self.num_blocks * (1 - self.validation_split))
@@ -66,21 +69,28 @@ class ZarrDataset(IterableDataset):
             return sum(training_blocks)
 
     def _calc_start_end(self, worker_id: int) -> tuple:
-        # First, determine the overall split
-        if self.is_validation:
-            # Use last validation_split portion of blocks
-            split_point = int(self.num_blocks * (1 - self.validation_split))
-            overall_start = split_point
+        # In predict mode, use all blocks without splits
+        if self.predict_mode:
+            overall_start = 0
             overall_end = self.num_blocks
             if worker_id == 0:  # Only print once per dataset
-                print(f"Validation split: blocks {overall_start} to {overall_end} (total blocks: {self.num_blocks})")
+                print(f"Predict mode: using all blocks 0 to {overall_end} (total blocks: {self.num_blocks})")
         else:
-            # Use first (1 - validation_split) portion of blocks
-            split_point = int(self.num_blocks * (1 - self.validation_split))
-            overall_start = 0
-            overall_end = split_point
-            if worker_id == 0:  # Only print once per dataset
-                print(f"Training split: blocks {overall_start} to {overall_end} (total blocks: {self.num_blocks})")
+            # First, determine the overall split for training/validation
+            if self.is_validation:
+                # Use last validation_split portion of blocks
+                split_point = int(self.num_blocks * (1 - self.validation_split))
+                overall_start = split_point
+                overall_end = self.num_blocks
+                if worker_id == 0:  # Only print once per dataset
+                    print(f"Validation split: blocks {overall_start} to {overall_end} (total blocks: {self.num_blocks})")
+            else:
+                # Use first (1 - validation_split) portion of blocks
+                split_point = int(self.num_blocks * (1 - self.validation_split))
+                overall_start = 0
+                overall_end = split_point
+                if worker_id == 0:  # Only print once per dataset
+                    print(f"Training split: blocks {overall_start} to {overall_end} (total blocks: {self.num_blocks})")
         
         # Now assign workers within the appropriate range
         available_blocks = overall_end - overall_start
@@ -120,13 +130,20 @@ class ZarrDataset(IterableDataset):
         zarr_path = self.zarr_files[curr_block]
         adata = ad.read_zarr(zarr_path)
         obs_df_block = adata.obs.reset_index()
-        X_block = adata.X
+        X_block = adata.X[:,1:] # TODO FIX THIS IN TRAINING
         
         # Load data and metadata
         cell_idx_block = obs_df_block["cell_idx"].astype(np.int64).to_numpy()
         modality_idx_block = np.zeros(obs_df_block.shape[0], dtype=np.int64)
-        study_idx_block = obs_df_block["study_idx"].to_numpy()
-        sample_idx_block = obs_df_block["sample_idx"].to_numpy()
+
+        if self.predict_mode == True:
+            study_idx_block = np.zeros(obs_df_block.shape[0], dtype=np.int64)
+            sample_idx_block = np.zeros(obs_df_block.shape[0], dtype=np.int64)
+
+        else:
+            study_idx_block = obs_df_block["study_idx"].to_numpy()
+            sample_idx_block = obs_df_block["sample_idx"].to_numpy()
+
         local_l_mean_block = obs_df_block["log_mean"].to_numpy()
         local_l_var_block = obs_df_block["log_var"].to_numpy()
 

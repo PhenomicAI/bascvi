@@ -25,10 +25,10 @@ class ZarrDataModule(pl.LightningDataModule):
         assert os.path.exists(data_root_dir), f"Data root directory {data_root_dir} does not exist"
 
         # Load feature presence matrix
-        feature_matrix_path = os.path.join(data_root_dir, "feature_presence_matrix.npy")
-        if not os.path.exists(feature_matrix_path):
-            raise FileNotFoundError(f"Feature presence matrix not found at {feature_matrix_path}")
-        self.feature_presence_matrix = np.load(feature_matrix_path)
+        #feature_matrix_path = os.path.join(data_root_dir, "feature_presence_matrix.npy")
+        #if not os.path.exists(feature_matrix_path):
+        #    raise FileNotFoundError(f"Feature presence matrix not found at {feature_matrix_path}")
+        #self.feature_presence_matrix = np.load(feature_matrix_path)
 
         # Find all .zarr files and gene list
         block_files = sorted([str(p) for p in Path(self.data_root_dir).glob('*.zarr')])
@@ -37,6 +37,8 @@ class ZarrDataModule(pl.LightningDataModule):
         self.gene_list = z['var']['gene'][:].tolist()
         self.num_blocks = len(block_files)
         self.num_genes = len(self.gene_list)
+
+        self.feature_presence_matrix = np.ones((self.num_genes, self.num_blocks))
         print(f'# Blocks: {self.num_blocks}\n# Genes: {self.num_genes}')
 
         # Load batch sizes (study/sample counts)
@@ -52,11 +54,11 @@ class ZarrDataModule(pl.LightningDataModule):
             batch_level_sizes=self.batch_level_sizes,
             num_workers=self.dataloader_args.get('num_workers', 1),
             block_size=self.dataloader_args.get('batch_size', 64),
-            validation_split=0.1,  # 10% for validation
             min_nnz=self.min_nnz,
         )
         if stage == "fit":
             print("Stage = Fitting")
+            dataset_args["validation_split"] = 0.1  # 10% for validation
             self.train_dataset = ZarrDataset(is_validation=False, **dataset_args)
             self.val_dataset = ZarrDataset(is_validation=True, **dataset_args)
             print(f"Train dataset length: {len(self.train_dataset)}")
@@ -64,6 +66,7 @@ class ZarrDataModule(pl.LightningDataModule):
             
         elif stage == "predict":
             print("Stage = Predicting on Zarr blocks")
+            # No validation split in predict mode - use all data
             self.pred_dataset = ZarrDataset(predict_mode=True, **dataset_args)
 
     def train_dataloader(self):

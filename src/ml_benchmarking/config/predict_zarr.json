@@ -1,0 +1,21 @@
+{
+  "mode": "predict",
+  "pretrained_model_path": "/home/ubuntu/bascvi/src/runs/scref_train/scref_train/zs9ohqhe/checkpoints/scvi-vae-epoch=04-elbo_val=0.00.ckpt",
+
+  "run_save_dir": "/home/ubuntu/scRNA/bascvi/runs/bassez_pred/",
+
+  "datamodule": {
+    "class_name": "ZarrDataModule",
+    "options": {
+      "data_root_dir": "/home/ubuntu/bassez_breast/aligned_blocks/",
+      "dataloader_args": {
+        "batch_size": 64,
+        "num_workers": 1,
+        "pin_memory": true
+      }
+    }
+  },
+
+  "trainer_module_name": "bascvi_trainer",
+  "trainer_class_name": "BAScVITrainer"
+}

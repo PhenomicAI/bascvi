@@ -102,31 +102,28 @@ def predict(config: Dict):
     logger.info("predict dataloader created")
     predictions = trainer.predict(model, dataloaders=dataloader)
     logger.info("predictions made")
+    print('Predictions length: ', len(predictions))
+    print('Predictions shape: ', predictions[0].shape)
     embeddings = torch.cat(predictions, dim=0).detach().cpu().numpy()
 
+    
     if config["datamodule"]["class_name"] == "TileDBSomaIterDataModule":
         emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 1 )] # -1 accounts for soma_joinid
         embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["soma_joinid"])
+    
     elif config["datamodule"]["class_name"] == "AnnDataDataModule":
         emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 2)]
         embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["file_counter", "cell_counter"])
+    
     elif config["datamodule"]["class_name"] == "ZarrDataModule":
+
         emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1] - 1)]  # -1 accounts for cell_idx
         embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns + ["cell_idx"])
+    
     else:
         emb_columns = ["embedding_" + str(i) for i in range(embeddings.shape[1])]
         embeddings_df = pd.DataFrame(data=embeddings, columns=emb_columns)
 
-
-    # trainer.save_checkpoint("/home/ubuntu/paper_repo/bascvi/checkpoints/paper/human_bascvi_1k/human_bascvi_epoch_123.ckpt")
-
-
-    # logger.info("--------------------------Run UMAP----------------------------")
-    # if embeddings_df.shape[0] > 500000:
-    #     logger.info("Too many embeddings to calculate UMAP, skipping....")
-    # else:
-
-    #     embeddings_df = umap_calc_and_save_html(embeddings_df, emb_columns, trainer.default_root_dir)
     
     logger.info("-----------------------Save Embeddings------------------------")
     if config["datamodule"]["class_name"] in ["TileDBSomaIterDataModule", "EmbDatamodule"]:
@@ -138,10 +135,12 @@ def predict(config: Dict):
                         
             # merge the embeddings with the soma join id
             embeddings_df = embeddings_df.set_index("soma_joinid").join(obs_df.set_index("soma_joinid"))
+    
     elif config["datamodule"]["class_name"] == "AnnDataDataModule":
         file_paths_df = pd.DataFrame(datamodule.file_paths, columns=["file_path"])
         file_paths_df["file_counter"] = file_paths_df.index 
         embeddings_df = embeddings_df.merge(file_paths_df, on="file_counter")
+    
     elif config["datamodule"]["class_name"] == "ZarrDataModule":
         # Collect obs data from all zarr files to map to predictions
         logger.info("--------------------------Collecting obs data from zarr files----------------------------")
