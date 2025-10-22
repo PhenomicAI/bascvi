@@ -130,7 +130,7 @@ class ZarrDataset(IterableDataset):
         zarr_path = self.zarr_files[curr_block]
         adata = ad.read_zarr(zarr_path)
         obs_df_block = adata.obs.reset_index()
-        X_block = adata.X[:,1:] # TODO FIX THIS IN TRAINING
+        X_block = adata.X
         
         # Load data and metadata
         cell_idx_block = obs_df_block["cell_idx"].astype(np.int64).to_numpy()

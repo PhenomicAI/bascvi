@@ -7,26 +7,64 @@ import zarr
 from tqdm import tqdm
 import gc
 import hashlib
-
-import os
 import re
-import anndata as ad
 from collections import defaultdict
-from tqdm import tqdm
-import numpy as np
 import pickle
+import argparse
 
-def log_mean(X):
-    """Compute the mean of the log total counts per cell."""
-    log_counts = np.log(X.sum(axis=1))
-    local_mean = np.mean(log_counts).astype(np.float32)
-    return local_mean
-
-def log_var(X):
-    """Compute the variance of the log total counts per cell."""
-    log_counts = np.log(X.sum(axis=1))
-    local_var = np.var(log_counts).astype(np.float32)
-    return local_var
+def get_zarr_shape(zarr_group, array_name='X', debug=False):
+    """
+    Get the shape of a Zarr array with backward compatibility for different Zarr versions.
+    
+    Parameters
+    ----------
+    zarr_group : zarr.Group
+        The Zarr group containing the array
+    array_name : str
+        Name of the array to get shape for (default: 'X')
+    debug : bool
+        Whether to print debug information (default: False)
+    
+    Returns
+    -------
+    tuple
+        Shape of the array
+        
+    Raises
+    ------
+    ValueError
+        If shape cannot be determined
+    """
+    try:
+        # Try accessing shape from attrs (older Zarr versions)
+        shape = zarr_group[array_name].attrs['shape']
+        if debug:
+            print(f"Got shape from attrs: {shape}")
+        return shape
+    except (KeyError, AttributeError):
+        try:
+            # Try accessing shape directly from the array (newer Zarr versions)
+            shape = zarr_group[array_name].shape
+            if debug:
+                print(f"Got shape from array.shape: {shape}")
+            return shape
+        except AttributeError:
+            # Fallback: try to get shape from the array itself
+            x_array = zarr_group[array_name]
+            if hasattr(x_array, 'shape'):
+                shape = x_array.shape
+                if debug:
+                    print(f"Got shape from array object: {shape}")
+                return shape
+            else:
+                # Last resort: try to infer from data structure
+                if hasattr(x_array, 'attrs') and 'shape' in x_array.attrs:
+                    shape = x_array.attrs['shape']
+                    if debug:
+                        print(f"Got shape from array.attrs: {shape}")
+                    return shape
+                else:
+                    raise ValueError(f"Could not determine shape for {array_name} in zarr group")
 
 def generate_cell_idx_with_counter(study_name, barcode, study_idx, sample_idx, cell_counter):
     """
@@ -93,7 +131,18 @@ def load_sparse_rows_from_zarr(x_group, row_indices, max_block_size: int = 4000)
     """
 
     row_indices = np.sort(np.array(row_indices, dtype=np.int64))
-    n_genes = x_group.attrs['shape'][1]
+    # Handle different Zarr versions for shape access
+    try:
+        n_genes = x_group.attrs['shape'][1]
+    except (KeyError, AttributeError):
+        try:
+            n_genes = x_group.shape[1]
+        except AttributeError:
+            # Fallback: try to get shape from the group itself
+            if hasattr(x_group, 'shape'):
+                n_genes = x_group.shape[1]
+            else:
+                raise ValueError("Could not determine number of genes from Zarr group")
 
     result_rows = []
 
@@ -131,7 +180,7 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
 
     for z_counter, zarr_path in enumerate(input_zarr_files):
         z = zarr.open_group(zarr_path, mode='r')
-        full_shape = z['X'].attrs['shape']
+        full_shape = get_zarr_shape(z, 'X')
         total_count += full_shape[0]
 
     fragment_number = total_count // target_shuffle_size
@@ -153,20 +202,46 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
     for zarr_path in input_zarr_files:
 
         study_name = zarr_path.split('/')[-1].split('.')[0]
+        
+        print(f"Processing {study_name}")
 
         # Load the Zarr object
         z = zarr.open_group(zarr_path, mode='r')
-        full_shape = z['X'].attrs['shape']
+        full_shape = get_zarr_shape(z, 'X')
 
-        # Read gene names from Zarr file
-        zarr_genes = z['var']['gene'][:].tolist()
+        # Read gene names from Zarr file (zarr v3 compatible)
+        print(f"Reading gene names from {zarr_path}")
+        try:
+            # Try zarr v3 syntax first
+            zarr_genes = z['var']['gene'][:].tolist()
+            print(f"Successfully read {len(zarr_genes)} genes using zarr v3 syntax")
+        except Exception as e:
+            print(f"Zarr v3 syntax failed: {e}")
+            # Fallback to AnnData for zarr v3 files
+
+            adata = ad.read_zarr(zarr_path)
+            zarr_genes = adata.var['gene'].tolist()
+            print(f"Successfully read {len(zarr_genes)} genes using AnnData")
 
         print(f"Processing {study_name}  with shape: {full_shape[0]} sample count: {sample_counter} zarr counter: {z_counter} gene count: {len(zarr_genes)}")
+        
+        # Debug: Show first few genes from both lists
+        print(f"First 5 genes from zarr file: {zarr_genes[:5]}")
+        print(f"First 5 genes from gene_list: {gene_list[:5]}")
+        
+        # Check for overlap
+        zarr_gene_set = set(zarr_genes)
+        gene_list_set = set(gene_list)
+        overlap = zarr_gene_set.intersection(gene_list_set)
+        print(f"Gene overlap count: {len(overlap)} out of {len(gene_list)} genes in gene_list")
 
         # Build index map from gene_list -> zarr index or None
-
         zarr_gene_to_idx = {gene: i for i, gene in enumerate(zarr_genes)}
         gene_to_zarr_idx = {gene: zarr_gene_to_idx.get(gene, None) for gene in gene_list}
+        
+        # Debug: Show how many genes were successfully mapped
+        mapped_count = sum(1 for idx in gene_to_zarr_idx.values() if idx is not None)
+        print(f"Successfully mapped {mapped_count} out of {len(gene_list)} genes")
         
         var_df = pd.DataFrame(gene_list, columns=['gene'])
 
@@ -208,6 +283,15 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
 
                 # Assign unique sample_idx for this sample (same sample_name in different files gets different IDs)
                 sample_obs['sample_idx'] = sample_counter
+
+                # Calculate log_mean and log_var from sample data
+                if hasattr(sample_X, 'getnnz'):
+                    log_counts = np.log(sample_X.sum(axis=1).A1 + 1e-6)
+                else:
+                    log_counts = np.log(sample_X.sum(axis=1) + 1e-6)
+                
+                sample_obs['log_mean'] = np.mean(log_counts)
+                sample_obs['log_var'] = np.var(log_counts)
                 
                 # Generate globally unique cell_idx for each cell using hash + counter approach
                 # This ensures each cell has a unique, deterministic identifier that can be used
@@ -329,15 +413,6 @@ def fragment_zarr(input_dir, fragment_dir, output_dir, gene_list, target_shuffle
             # Apply mask to matrix and obs
             X_final_block_filtered = X_final_block[cell_mask, :]
             obs_filtered = obs_df[start:stop].iloc[cell_mask]
-
-            # Calculate log_mean and log_var from filtered data
-            if hasattr(X_final_block_filtered, 'getnnz'):
-                log_counts = np.log(X_final_block_filtered.sum(axis=1).A1 + 1e-6)
-            else:
-                log_counts = np.log(X_final_block_filtered.sum(axis=1) + 1e-6)
-            
-            obs_filtered['log_mean'] = np.mean(log_counts)
-            obs_filtered['log_var'] = np.var(log_counts)
 
             # Write AnnData object
             ad_write = ad.AnnData(X=X_final_block_filtered, obs=obs_filtered, var=var_df)
@@ -461,7 +536,14 @@ def generate_feature_presence_matrix(input_dir, gene_list, output_dir):
 
     for z_counter, zarr_path in enumerate(zarr_files):
         z = zarr.open_group(zarr_path, mode='r')
-        zarr_genes = z['var']['gene'][:].tolist()
+        try:
+            # Try zarr v3 syntax first
+            zarr_genes = z['var']['gene'][:].tolist()
+        except Exception:
+            # Fallback to AnnData for zarr v3 files
+            adata = ad.read_zarr(zarr_path)
+            zarr_genes = adata.var['gene'].tolist()
+        
         zarr_gene_set = set(zarr_genes)
         for g_idx, gene in enumerate(gene_list):
             if gene in zarr_gene_set:
@@ -471,16 +553,43 @@ def generate_feature_presence_matrix(input_dir, gene_list, output_dir):
     print(f"Feature presence matrix saved to {os.path.join(output_dir, 'feature_presence_matrix.npy')}")
 
 
-input_dir = "/home/ubuntu/scpedia_zarrs"
-fragment_dir = "/home/ubuntu/zarr_fragments"
-output_dir = "/home/ubuntu/zarr_train_blocks"
+def _default_gene_list_path() -> str:
+    # Resolve default gene list relative to this file: ../../../data/genes_2ksamples_10cells.txt
+    script_dir = os.path.dirname(__file__)
+    default_path = os.path.normpath(os.path.join(script_dir, "..", "..", "..", "data", "genes_2ksamples_10cells.txt"))
+    return default_path
 
-gene_list = pd.read_csv("/home/ubuntu/bascvi/src/ml_benchmarking/data/genes_2ksamples_10cells.txt",index_col=0,header=None)
-gene_list = gene_list.index.tolist()
 
-fragment_zarr(input_dir, fragment_dir, output_dir, gene_list)
-shuffle_and_refragment(fragment_dir,output_dir)
-generate_feature_presence_matrix(input_dir, gene_list, output_dir)
+def main():
+    parser = argparse.ArgumentParser(description="Fragment, shuffle, and re-fragment zarr datasets with configurable paths.")
+    parser.add_argument("input_dir", type=str, help="Directory containing input .zarr files")
+    parser.add_argument("--fragment_dir", type=str, default=None, help="Output directory for initial fragments. Defaults to '<input_dir>_zarr_fragments'")
+    parser.add_argument("--output_dir", type=str, default=None, help="Output directory for shuffled train blocks. Defaults to '<input_dir>_zarr_train_blocks'")
+    parser.add_argument("--gene_list", type=str, default=None, help="Path to gene list file (txt). Defaults to data/genes_2ksamples_10cells.txt relative to this script")
+
+    args = parser.parse_args()
+
+    input_dir = args.input_dir
+    input_dir_stripped = input_dir[:-1] if input_dir.endswith(os.sep) else input_dir
+
+    fragment_dir = args.fragment_dir if args.fragment_dir is not None else f"{input_dir_stripped}_zarr_fragments"
+    output_dir = args.output_dir if args.output_dir is not None else f"{input_dir_stripped}_zarr_train_blocks"
+
+    gene_list_path = args.gene_list if args.gene_list is not None else _default_gene_list_path()
+    if not os.path.isfile(gene_list_path):
+        raise FileNotFoundError(f"Gene list file not found at: {gene_list_path}")
+
+    gene_list_df = pd.read_csv(gene_list_path, index_col=0, header=None)
+    gene_list = gene_list_df.index.tolist()
+    print('gene list: ', gene_list[:20])
+
+    fragment_zarr(input_dir, fragment_dir, output_dir, gene_list)
+    shuffle_and_refragment(fragment_dir, output_dir)
+    generate_feature_presence_matrix(input_dir, gene_list, output_dir)
+
+
+if __name__ == "__main__":
+    main()
 
 
 

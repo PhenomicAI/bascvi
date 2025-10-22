@@ -59,6 +59,7 @@ class BAScVI(nn.Module):
         super().__init__()
 
         self.n_input = n_input
+        
         self.batch_level_sizes = batch_level_sizes
         self.n_batch = np.sum(batch_level_sizes)
         self.n_hidden = n_hidden

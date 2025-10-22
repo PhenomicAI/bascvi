@@ -1,6 +1,6 @@
 {
   "mode": "predict",
-  "pretrained_model_path": "/home/ubuntu/bascvi/src/runs/scref_train/scref_train/zs9ohqhe/checkpoints/scvi-vae-epoch=04-elbo_val=0.00.ckpt",
+  "pretrained_model_path": "/home/ubuntu/bascvi/src/runs/scref_train_1/scref_train/zs9ohqhe/checkpoints/scvi-vae-epoch=04-elbo_val=0.00.ckpt",
 
   "run_save_dir": "/home/ubuntu/scRNA/bascvi/runs/bassez_pred/",
 

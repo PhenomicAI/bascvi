@@ -1,15 +1,14 @@
 {
     "mode": "train",
 
-    "wandb_project_name": "scpedia_train",
-    "run_save_dir": "/home/ubuntu/volumes/runs/scpedia_train/",
-    
-    "load_from_checkpoint": null,
-    
+    "wandb_project_name": "scref_train",
+    "run_save_dir": "../runs/scref_train/",
+    "load_from_checkpoint": "/home/ubuntu/bascvi/src/runs/scref_train_1/scref_train/zs9ohqhe/checkpoints/scvi-vae-epoch=04-elbo_val=0.00.ckpt",
+
     "datamodule": {
         "class_name": "ZarrDataModule",
         "options": {
-            "data_root_dir": "/home/ubuntu/volumes/scPedia_zarr_train_blocks",
+            "data_root_dir": "/home/ubuntu/zarr_train_blocks/",
             "dataloader_args": {
                 "batch_size": 64,
                 "num_workers": 8,
@@ -25,7 +24,7 @@
             "n_hidden": 512,
             "n_latent": 10,
             "n_layers": 4,
-	    "dropout_rate":0.1,
+            "dropout_rate": 0.1,
             "scaling_factor": 10000.0,
             "use_library": true,
             "use_batch_encoder": true
@@ -54,7 +53,7 @@
             "train_adversarial": true,
             "train_library": true,
             "reduce_lr_on_plateau": true,
-	    "max_epochs":5
+            "max_epochs": 10
         },
 
         "callbacks_args": {

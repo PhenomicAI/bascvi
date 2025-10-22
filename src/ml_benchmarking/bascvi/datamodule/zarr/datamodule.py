@@ -25,10 +25,10 @@ class ZarrDataModule(pl.LightningDataModule):
         assert os.path.exists(data_root_dir), f"Data root directory {data_root_dir} does not exist"
 
         # Load feature presence matrix
-        #feature_matrix_path = os.path.join(data_root_dir, "feature_presence_matrix.npy")
-        #if not os.path.exists(feature_matrix_path):
-        #    raise FileNotFoundError(f"Feature presence matrix not found at {feature_matrix_path}")
-        #self.feature_presence_matrix = np.load(feature_matrix_path)
+        feature_matrix_path = os.path.join(data_root_dir, "feature_presence_matrix.npy")
+        if not os.path.exists(feature_matrix_path):
+            raise FileNotFoundError(f"Feature presence matrix not found at {feature_matrix_path}")
+        self.feature_presence_matrix = np.load(feature_matrix_path)
 
         # Find all .zarr files and gene list
         block_files = sorted([str(p) for p in Path(self.data_root_dir).glob('*.zarr')])
@@ -38,7 +38,6 @@ class ZarrDataModule(pl.LightningDataModule):
         self.num_blocks = len(block_files)
         self.num_genes = len(self.gene_list)
 
-        self.feature_presence_matrix = np.ones((self.num_genes, self.num_blocks))
         print(f'# Blocks: {self.num_blocks}\n# Genes: {self.num_genes}')
 
         # Load batch sizes (study/sample counts)
