@@ -152,23 +152,52 @@ class BAScVITrainer(pl.LightningModule):
         if self.training_args.get("train_adversarial"):
 
             g_opt, d_opt = self.optimizers()
+            
+            # Generator update
             g_opt.zero_grad()
             _, _, g_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
             self.manual_backward(g_losses['loss'])
-            utils.clip_grad_norm_(self.vae.parameters(), 1.0)
+            # Clip gradients only for generator parameters (encoder, decoder, not discriminators)
+            generator_params = []
+            generator_params.extend(self.vae.z_encoder.parameters())
+            generator_params.extend(self.vae.decoder.parameters())
+            if self.vae.use_library and hasattr(self.vae, 'l_encoder'):
+                generator_params.extend(self.vae.l_encoder.parameters())
+            generator_params.append(self.vae.px_r)  # Include px_r parameter
+            # Use configurable gradient clipping max norm, default to 5.0 if not specified
+            max_grad_norm = self.training_args.get("max_grad_norm", 5.0)
+            utils.clip_grad_norm_(generator_params, max_grad_norm)
             g_opt.step()
-            d_opt.zero_grad()
-            _, _, d_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=1)
-            self.manual_backward(d_losses['loss'])
-            utils.clip_grad_norm_(self.vae.parameters(), 1.0)
-            d_opt.step()
+            
+            # Discriminator update - only train discriminator after warmup period
+            # Skip discriminator training during warmup to stabilize early training
+            # Use threshold of 0.01 to determine if warmup is substantial enough
+            if self.disc_warmup_weight >= 0.01:
+                d_opt.zero_grad()
+                _, _, d_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=1)
+                self.manual_backward(d_losses['loss'])
+                # Clip gradients only for discriminator parameters
+                discriminator_params = []
+                if self.vae.z_predictors is not None:
+                    for predictor in self.vae.z_predictors:
+                        discriminator_params.extend(predictor.parameters())
+                if self.vae.x_predictors is not None:
+                    for predictor in self.vae.x_predictors:
+                        discriminator_params.extend(predictor.parameters())
+                if discriminator_params:
+                    # Use configurable gradient clipping max norm, default to 5.0 if not specified
+                    max_grad_norm = self.training_args.get("max_grad_norm", 5.0)
+                    utils.clip_grad_norm_(discriminator_params, max_grad_norm)
+                d_opt.step()
 
         else:
             g_opt = self.optimizers()
             g_opt.zero_grad()
             _, _, g_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
             self.manual_backward(g_losses['loss'])
-            utils.clip_grad_norm_(self.vae.parameters(), 1.0)
+            # Use configurable gradient clipping max norm, default to 5.0 if not specified
+            max_grad_norm = self.training_args.get("max_grad_norm", 5.0)
+            utils.clip_grad_norm_(self.vae.parameters(), max_grad_norm)
             g_opt.step()
         
         # Filter out individual discriminator losses to avoid serialization
@@ -198,7 +227,9 @@ class BAScVITrainer(pl.LightningModule):
         self.validation_batch_count = 0
 
     def validation_step(self, batch):
-        encoder_outputs, _, g_losses = self.forward(batch, kl_warmup_weight=self.kl_warmup_weight, disc_loss_weight=self.disc_loss_weight, disc_warmup_weight=self.disc_warmup_weight, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
+        # Use full weights (no warmup) for validation to get accurate model performance
+        # For validation loss, only include reconstruction loss and KL divergence (exclude discriminator loss)
+        inference_outputs, _, g_losses = self.forward(batch, kl_warmup_weight=1.0, disc_loss_weight=0.0, disc_warmup_weight=1.0, kl_loss_weight=self.kl_loss_weight, optimizer_idx=0)
         
         # Filter out large objects and individual discriminator losses to avoid serialization
         filtered_g_losses = {}
@@ -212,7 +243,7 @@ class BAScVITrainer(pl.LightningModule):
                 filtered_g_losses[f"val_loss/{k}"] = v
         
         self.log_dict(filtered_g_losses, on_step=False, on_epoch=True)
-        qz_m = encoder_outputs["qz_m"]
+        qz_m = inference_outputs["qz_m"]
         z = qz_m.double()
         emb_output = torch.cat((z, torch.unsqueeze(batch["cell_idx"], 1)), 1)
         self.validation_step_outputs.append(emb_output)
@@ -262,16 +293,28 @@ class BAScVITrainer(pl.LightningModule):
         logger.info("=" * 60)
         
         # Print key metrics first
-        key_metrics = ['val_loss/loss', 'val_loss/kl_loss', 'val_loss/recon_loss']
-        for metric_name in key_metrics:
+        # Note: Total loss = rec_loss + kl_loss - (disc_loss_weight * disc_warmup_weight * disc_loss)
+        # Discriminator loss is subtracted in adversarial training, which can make total loss negative
+        for metric_name in ['val_loss/loss', 'val_loss/rec_loss', 'val_loss/kl_loss', 'val_loss/disc_loss']:
             if metric_name in val_metrics:
                 metric_value = val_metrics[metric_name]
                 if hasattr(metric_value, 'item'):
                     metric_value = metric_value.item()
                 logger.info(f"{metric_name}: {metric_value:.6f}")
         
+        # Print weighted discriminator loss (what's actually subtracted from total loss)
+        # Note: Validation uses warmup_weight=1.0, so weighted_disc_loss = disc_weight * 1.0 * disc_loss
+        if 'val_loss/disc_loss' in val_metrics:
+            disc_loss = val_metrics['val_loss/disc_loss']
+            if hasattr(disc_loss, 'item'):
+                disc_loss = disc_loss.item()
+            # Validation uses full weights (warmup=1.0)
+            weighted_disc_loss = self.disc_loss_weight * 1.0 * disc_loss
+            logger.info(f"val_loss/weighted_disc_loss (disc_weight * 1.0 * disc_loss): {weighted_disc_loss:.6f}")
+        
         # Print other validation metrics
-        other_val_metrics = {k: v for k, v in val_metrics.items() if k not in key_metrics}
+        key_metrics_set = {'val_loss/loss', 'val_loss/rec_loss', 'val_loss/kl_loss', 'val_loss/disc_loss'}
+        other_val_metrics = {k: v for k, v in val_metrics.items() if k not in key_metrics_set}
         if other_val_metrics:
             logger.info("-" * 40)
             logger.info("OTHER VALIDATION METRICS:")
@@ -295,8 +338,11 @@ class BAScVITrainer(pl.LightningModule):
         logger.info("TRAINER STATE:")
         logger.info(f"Global Step: {self.global_step}")
         logger.info(f"Current Epoch: {self.current_epoch}")
-        logger.info(f"KL Warmup Weight: {self.kl_warmup_weight:.4f}")
-        logger.info(f"Disc Warmup Weight: {self.disc_warmup_weight:.4f}")
+        logger.info(f"Training KL Warmup Weight: {self.kl_warmup_weight:.4f}")
+        logger.info(f"Training Disc Warmup Weight: {self.disc_warmup_weight:.4f}")
+        logger.info(f"Validation uses full weights (warmup=1.0) for accurate performance assessment")
+        logger.info(f"Disc Loss Weight: {self.disc_loss_weight:.4f}")
+        logger.info(f"Disc Weighted Product (disc_weight * disc_warmup): {self.disc_loss_weight * self.disc_warmup_weight:.4f}")
         
         logger.info("=" * 60)
 
@@ -312,12 +358,19 @@ class BAScVITrainer(pl.LightningModule):
         if hasattr(kl_loss, 'item'):
             kl_loss = kl_loss.item()
         
-        recon_loss = losses.get('recon_loss', 0)
-        if hasattr(recon_loss, 'item'):
-            recon_loss = recon_loss.item()
+        rec_loss = losses.get('rec_loss', 0)
+        if hasattr(rec_loss, 'item'):
+            rec_loss = rec_loss.item()
         
+        disc_loss = losses.get('disc_loss', 0)
+        if hasattr(disc_loss, 'item'):
+            disc_loss = disc_loss.item()
+        
+        # Calculate weighted discriminator loss
+        weighted_disc_loss = self.disc_loss_weight * self.disc_warmup_weight * disc_loss
         logger.info(f"Epoch {self.current_epoch}, Batch {batch_idx}: "
-                   f"Loss={main_loss:.6f}, KL={kl_loss:.6f}, Recon={recon_loss:.6f}")
+                   f"Loss={main_loss:.6f}, Rec={rec_loss:.6f}, KL={kl_loss:.6f}, "
+                   f"Disc={disc_loss:.6f} (weighted: {weighted_disc_loss:.6f})")
 
     def _log_validation_progress(self, batch_count, losses):
         """Log validation progress to stdout."""
@@ -331,12 +384,19 @@ class BAScVITrainer(pl.LightningModule):
         if hasattr(kl_loss, 'item'):
             kl_loss = kl_loss.item()
         
-        recon_loss = losses.get('recon_loss', 0)
-        if hasattr(recon_loss, 'item'):
-            recon_loss = recon_loss.item()
+        rec_loss = losses.get('rec_loss', 0)
+        if hasattr(rec_loss, 'item'):
+            rec_loss = rec_loss.item()
         
+        disc_loss = losses.get('disc_loss', 0)
+        if hasattr(disc_loss, 'item'):
+            disc_loss = disc_loss.item()
+        
+        # Calculate weighted discriminator loss
+        weighted_disc_loss = self.disc_loss_weight * self.disc_warmup_weight * disc_loss
         logger.info(f"Validation Epoch {self.current_epoch}, Batch {batch_count}: "
-                   f"Loss={main_loss:.6f}, KL={kl_loss:.6f}, Recon={recon_loss:.6f}")
+                   f"Loss={main_loss:.6f}, Rec={rec_loss:.6f}, KL={kl_loss:.6f}, "
+                   f"Disc={disc_loss:.6f} (weighted: {weighted_disc_loss:.6f})")
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)

@@ -69,11 +69,12 @@ class BAScVI(nn.Module):
         self.normalize_total = normalize_total
         self.scaling_factor = scaling_factor
         self.use_library = use_library
-        self.cs_loss = CosineSimilarity()
 
         self.batch_emb_dim = batch_emb_dim
 
-        self.px_r = torch.nn.Parameter(torch.randn(n_input))
+        # Initialize px_r close to zero to avoid numerical instability when exp(px_r) is computed
+        # This ensures exp(px_r) starts around 1.0 rather than extreme values
+        self.px_r = torch.nn.Parameter(torch.zeros(n_input))
 
         # z encoder goes from the n_input-dimensional data to an n_latent-d
         # latent space representation
@@ -268,13 +269,16 @@ class BAScVI(nn.Module):
         kl_loss_weight: float = 1.0,
         kl_warmup_weight: float = 1.0,
         optimizer_idx=0,
+
     ) -> Dict:
+    
         """Compute the loss for a minibatch of data.
 
         This function uses the outputs of the inference and generative
         functions to compute a loss. This many optionally include other
         penalty terms, which should be computed here.
         """
+
         if optimizer_idx == 0:
         
             qz_m = inference_outputs["qz_m"]
@@ -331,7 +335,7 @@ class BAScVI(nn.Module):
             for i, x_disc_loss in enumerate(x_disc_losses):
                 loss_dict[f"disc_loss_x_{i}"] = x_disc_loss.detach()
             
-        if optimizer_idx == 1:
+        elif optimizer_idx == 1:
             
             z_preds = generative_outputs["z_preds"]
             x_preds = inference_outputs["x_preds"]
@@ -355,6 +359,9 @@ class BAScVI(nn.Module):
 
             for i, x_disc_loss in enumerate(x_disc_losses):
                 loss_dict[f"disc_loss_x_{i}"] = x_disc_loss.detach()
+        else:
+            # Fallback for unexpected optimizer_idx values
+            raise ValueError(f"Unexpected optimizer_idx: {optimizer_idx}. Expected 0 or 1.")
 
         return loss_dict
     
@@ -366,9 +373,8 @@ class BAScVI(nn.Module):
         )
         
         reconst_loss = reconst_loss * feature_presence_mask
-        #reconst_loss = 10000 * (1 - self.cs_loss(px_dropout, x))
-
         reconst_loss = reconst_loss.sum(dim=-1)
+        
         return reconst_loss
     
     def get_disc_loss(self, preds, batch_vecs):
@@ -404,14 +410,14 @@ class BPredictor(nn.Module):
                     n_input,
                     n_hidden,
                     ),
-            nn.BatchNorm1d(n_hidden, eps=1e-5), # nn.LayerNorm(n_hidden),
+            nn.LayerNorm(n_hidden),
             nn.LeakyReLU(),
             
             nn.Linear(
                     n_hidden,
                     n_batch,
                     ),
-            nn.BatchNorm1d(n_batch, eps=1e-5), # nn.LayerNorm(n_batch),
+            nn.LayerNorm(n_batch),
             )
 
     def forward(

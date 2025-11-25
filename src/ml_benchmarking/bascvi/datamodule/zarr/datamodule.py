@@ -24,11 +24,18 @@ class ZarrDataModule(pl.LightningDataModule):
         self.backend = "zarr"  # Set backend to zarr
         assert os.path.exists(data_root_dir), f"Data root directory {data_root_dir} does not exist"
 
-        # Load feature presence matrix
-        feature_matrix_path = os.path.join(data_root_dir, "feature_presence_matrix.npy")
-        if not os.path.exists(feature_matrix_path):
-            raise FileNotFoundError(f"Feature presence matrix not found at {feature_matrix_path}")
-        self.feature_presence_matrix = np.load(feature_matrix_path)
+        # Track feature presence matrix availability; only required for training/finetuning.
+        self._feature_matrix_path = os.path.join(data_root_dir, "feature_presence_matrix.npy")
+        self._feature_matrix_missing = not os.path.exists(self._feature_matrix_path)
+        if self._feature_matrix_missing:
+            self.feature_presence_matrix = None
+            print(
+                f"WARNING: Feature presence matrix not found at {self._feature_matrix_path}. "
+                "It will be synthesized as all-ones for predict-only workloads."
+            )
+        else:
+            self.feature_presence_matrix = np.load(self._feature_matrix_path)
+        self._using_default_feature_matrix = False
 
         # Find all .zarr files and gene list
         block_files = sorted([str(p) for p in Path(self.data_root_dir).glob('*.zarr')])
@@ -45,11 +52,35 @@ class ZarrDataModule(pl.LightningDataModule):
             max_study_idx, max_sample_idx = pickle.load(f)
         self.batch_level_sizes = [1, max_study_idx + 1, max_sample_idx + 1]
 
+    def _resolve_feature_presence_matrix(self, stage: Optional[str]) -> np.ndarray:
+        """Return a valid feature presence matrix for the requested stage."""
+        if self.feature_presence_matrix is not None:
+            return self.feature_presence_matrix
+
+        # Only allow implicit creation for predict-only workloads
+        if stage == "predict":
+            num_studies = max(1, self.batch_level_sizes[1])
+            fallback = np.ones((num_studies, self.num_genes), dtype=np.float32)
+            self.feature_presence_matrix = fallback
+            self._using_default_feature_matrix = True
+            print(
+                "INFO: Synthesizing an all-ones feature presence matrix for predict mode. "
+                "Per-study gene masking will be skipped."
+            )
+            return self.feature_presence_matrix
+
+        raise FileNotFoundError(
+            f"Feature presence matrix required for stage '{stage or 'fit'}' "
+            f"but not found at {self._feature_matrix_path}"
+        )
+
     def setup(self, stage: Optional[str] = None):
+        feature_presence_matrix = self._resolve_feature_presence_matrix(stage)
+
         dataset_args = dict(
             data_root_dir=self.data_root_dir,
             gene_list=self.gene_list,
-            feature_presence_matrix=self.feature_presence_matrix,
+            feature_presence_matrix=feature_presence_matrix,
             batch_level_sizes=self.batch_level_sizes,
             num_workers=self.dataloader_args.get('num_workers', 1),
             block_size=self.dataloader_args.get('batch_size', 64),

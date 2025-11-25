@@ -25,18 +25,18 @@
             "n_hidden": 512,
             "n_latent": 10,
             "n_layers": 4,
-	    "dropout_rate":0.1,
+	        "dropout_rate":0.1,
             "scaling_factor": 10000.0,
             "use_library": true,
             "use_batch_encoder": true
         },
 
         "training_args": {
-            "kl_loss_weight": 1.0,
+            "kl_loss_weight": 0.2,
             "disc_loss_weight": 1.0,
 
             "n_steps_kl_warmup": 50,
-            "n_steps_discriminator_warmup": 50,
+            "n_steps_discriminator_warmup": 100,
             "sigmoidal_disc_warmup": true, 
 
             "save_validation_umaps": true,
@@ -54,7 +54,8 @@
             "train_adversarial": true,
             "train_library": true,
             "reduce_lr_on_plateau": true,
-	    "max_epochs":5
+            "max_grad_norm": 5.0,
+	    "max_epochs":25
         },
 
         "callbacks_args": {
@@ -64,7 +65,7 @@
             },
             "early_stopping": {
                 "monitor": "val_loss/loss",
-                "patience": 5,
+                "patience": 10,
                 "mode": "min"
             }
         }

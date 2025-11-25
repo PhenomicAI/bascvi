@@ -56,7 +56,7 @@ class BEncoder(nn.Module):
                                 n_in,
                                 n_out,
                             ),
-                            nn.BatchNorm1d(n_out, eps=1e-3), #nn.LayerNorm(n_out),
+                            nn.LayerNorm(n_out),
                             nn.ReLU(),
                             nn.Dropout(p=dropout_rate),
                         ),
@@ -71,7 +71,7 @@ class BEncoder(nn.Module):
                     n_hidden,
                     n_hidden,
                     ),
-            nn.BatchNorm1d(n_hidden, eps=1e-3), # nn.LayerNorm(n_hidden),
+            nn.LayerNorm(n_hidden),
             nn.ReLU(),
             )
             

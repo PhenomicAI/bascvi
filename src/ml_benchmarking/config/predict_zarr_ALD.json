@@ -2,12 +2,12 @@
   "mode": "predict",
   "pretrained_model_path": "/home/ubuntu/volumes/runs/scpedia_train/scpedia_train/eoexcczf/checkpoints/scvi-vae-epoch=19-elbo_val=0.00.ckpt",
 
-  "run_save_dir": "/home/ubuntu/scRNA/bascvi/runs/qian_pred/",
+  "run_save_dir": "/home/ubuntu/scRNA/bascvi/runs/ald_pred/",
 
   "datamodule": {
     "class_name": "ZarrDataModule",
     "options": {
-      "data_root_dir": "/home/ubuntu/qian_atlas/aligned_blocks/",
+      "data_root_dir": "/home/ubuntu/volumes/internal_ALD/output/aligned_blocks",
       "dataloader_args": {
         "batch_size": 64,
         "num_workers": 1,
