@@ -1,9 +1,9 @@
 # BAscVI
 
-This repository accompanies the paper:
+This repository accompanies the LMRL workshop paper:
 
 **“Adversarial learning enables unbiased organism-wide cross-species alignment of single-cell RNA data at scale”**  
-[arXiv preprint](https://arxiv.org/abs/2503.20730v1)
+[arXiv paper](https://arxiv.org/abs/2503.20730v1)
 
 ---
 
