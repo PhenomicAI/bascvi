@@ -1,5 +1,6 @@
 from typing import List, Dict, Union, Tuple
 
+import math
 import torch
 import torch.nn as nn
 from torch.nn import CosineSimilarity
@@ -50,6 +51,7 @@ class BAScVI(nn.Module):
         normalize_total: bool = True,
         scaling_factor: float = 10000.0,
         init_weights: bool = True,
+        adv_loss_mode: str = "neg_ce",   # "confusion" for the bounded objective
         batch_emb_dim: int = 0,  # default 0, 10,
         use_library = True,
         use_batch_encoder = True,
@@ -59,6 +61,7 @@ class BAScVI(nn.Module):
         super().__init__()
 
         self.n_input = n_input
+        self.adv_loss_mode = adv_loss_mode
         
         self.batch_level_sizes = batch_level_sizes
         self.n_batch = np.sum(batch_level_sizes)
@@ -318,7 +321,13 @@ class BAScVI(nn.Module):
             reconst_loss = torch.mean(reconst_loss)
             weighted_kl_local = torch.mean(weighted_kl_local)
 
-            loss = reconst_loss + kl_warmup_weight * kl_loss_weight * weighted_kl_local - disc_loss_weight * disc_warmup_weight * disc_loss_reduced 
+            if getattr(self, "adv_loss_mode", "neg_ce") == "confusion":
+                z_conf, _ = self.get_confusion_loss(z_preds)
+                x_conf, _ = self.get_confusion_loss(x_preds)
+                adv_term = -(z_conf + x_conf)      # minimising confusion == +conf below
+            else:
+                adv_term = disc_loss_reduced
+            loss = reconst_loss + kl_warmup_weight * kl_loss_weight * weighted_kl_local - disc_loss_weight * disc_warmup_weight * adv_term 
 
             loss_dict = {
                 "loss": loss, 
@@ -387,12 +396,50 @@ class BAScVI(nn.Module):
         disc_losses = []
 
         for i, pred in enumerate(preds):
-            disc_losses.append(self.loss_cce(pred, batch_vecs[i].argmax(dim=1)))
+            # Levels differ enormously in class count (e.g. modality 2, study 11,
+            # sample 354), so raw cross-entropies span log(2)=0.69 to log(354)=5.87
+            # and averaging them lets the largest level dominate the gradient.
+            # Dividing by log(K) puts every level on a common "1.0 == chance" scale.
+            # Single-class levels carry no information (constant softmax, no
+            # gradient) and only dilute the mean, so they are skipped.
+            if pred.shape[1] < 2:
+                continue
+            ce = self.loss_cce(pred, batch_vecs[i].argmax(dim=1))
+            disc_losses.append(ce / math.log(pred.shape[1]))
 
-        # TODO: add weights for the different losses?
+        if not disc_losses:
+            zero = torch.zeros((), device=preds[0].device)
+            return zero, []
+
         disc_loss_reduced = torch.mean(torch.stack(disc_losses))
 
         return disc_loss_reduced, disc_losses
+
+    def get_confusion_loss(self, preds):
+        """Generator objective: push each discriminator toward a uniform posterior.
+
+        The alternative (`adv_loss_mode="neg_ce"`) has the generator *maximise*
+        the discriminator's cross-entropy. That is unbounded above and its optimum
+        is not a batch-free representation: driving CE past log(K) means the
+        discriminator is confidently *wrong*, i.e. batch identity is still linearly
+        present, merely sign-flipped. With a large weight the discriminator's only
+        stable response is to stop depending on its input at all.
+
+        Cross-entropy against the *uniform* target is bounded below by log(K) and
+        attains it exactly when the representation is uninformative about batch.
+        Reported as CE_uniform/log(K) - 1, so 0 means fully mixed, larger is worse.
+        """
+        conf_losses = []
+        for pred in preds:
+            k = pred.shape[1]
+            if k < 2:
+                continue
+            conf = -torch.log_softmax(pred, dim=1).mean(dim=1).mean()
+            conf_losses.append(conf / math.log(k) - 1.0)
+        if not conf_losses:
+            zero = torch.zeros((), device=preds[0].device) if preds else torch.zeros(())
+            return zero, []
+        return torch.mean(torch.stack(conf_losses)), conf_losses
 
 class BPredictor(nn.Module):
     def __init__(
