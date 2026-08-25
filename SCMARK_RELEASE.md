@@ -1,6 +1,22 @@
 # BA-scVI on scMARK — reproducible benchmark
 
-Released weights: **[socooper/bascvi-scmark](https://huggingface.co/socooper/bascvi-scmark)**
+## Released weights
+
+| benchmark | weights | KNI |
+|---|---|---|
+| **scMARK** | [socooper/bascvi-scmark](https://huggingface.co/socooper/bascvi-scmark) — `bascvi_scmark_epoch63.ckpt` | **0.7155** |
+| **scREF / organism-wide** | [phenomicai/bascvi-human](https://huggingface.co/phenomicai/bascvi-human) — `human_bascvi_epoch_123.ckpt` | paper reports 0.632 on scREF |
+
+The scMARK checkpoint embeds its own `gene_list` (35,804 genes) in
+`hyper_parameters`, so it is self-contained. The scREF/human checkpoint uses a
+different 29,494-gene space and 3,019 batch categories, and scores 0.582 on
+scMARK — it is a different model, not the scMARK one, so do not use it to
+reproduce scMARK numbers.
+
+**Note on loading `bascvi-human`:** it predates the per-batch-level
+`z_predictors`/`x_predictors` ModuleList and has a single `z_predictor`, so it
+does **not** load with current `BAScVI`. Commit `b411756` is the last one whose
+model matches it.
 
 ## Quick start
 
@@ -52,3 +68,35 @@ with the original on the authors' released embedding: 0.7110 vs 0.7114.
   here are at 10-d.
 - Training used batch injection into the **decoder only**; the encoder never sees
   batch, and `predict_mode=True` zeroes the batch vector at inference.
+
+
+## Known issues encountered while reproducing
+
+These were hit while training BA-scVI on a corpus built from scratch (the
+released S3 corpus has the required arrays baked in, so these paths are rarely
+exercised). Not all are fixed in this branch — listing them so others do not
+lose time:
+
+1. **`filter_and_generate_library_calcs()` uses `filter_pass_ids` before it is
+   assigned**, so it raises `AttributeError` on any corpus lacking a
+   `sample_library_calcs` array. Workaround: precompute
+   `ms["RNA"]["sample_library_calcs"]` (columns `sample_idx`,
+   `library_log_means`, `library_log_vars`) before training.
+2. **`ms["RNA"]["feature_presence_matrix"]` is required** but not created by any
+   script in the repo. It is `[n_samples, n_genes]`, 1 where that sample's study
+   measured the gene. Presence should come from the study's gene panel, not from
+   expression non-zeros — genes a study never assayed are structural zeros and
+   must be masked out of the reconstruction loss.
+3. **`obs` must contain `sample_name`** or the post-training embedding export
+   crashes *after* training completes, losing the run's output.
+4. **`AnnDataDataset` metadata is wrong with `num_workers > 1`.** `file_path`,
+   `file_counter` and `cell_counter` are instance attributes mutated during
+   iteration, so each worker's copy diverges and the emitted values do not
+   correspond to the row's actual source. In one 11-file run, one study was
+   credited with 79,540 rows against its true 9,540 and only 4 of 11 files
+   appeared. This silently corrupts any join of embeddings back to cell
+   metadata — including the one in the tutorial notebook. Use `num_workers=1`
+   until fixed.
+5. **Python 3.12+**: `import imp` (removed) in `bascvi/model/__init__.py`, and
+   `AnnData(dtype=...)` (removed from anndata) in
+   `datamodule/anndata/dataset.py`. The first is fixed here.
